@@ -5,6 +5,8 @@
 #include <string>
 #include <memory>
 #include <array>
+#include <optional>
+#include <span>
 
 #include "System/Matrix44f.h"
 #include "System/creg/creg_cond.h"
@@ -21,6 +23,8 @@ typedef void* SDL_GLContext;
 namespace Vulkan
 {
 	class Context;
+	struct DrawRange;
+	struct Vertex2D;
 }
 
 /**
@@ -52,6 +56,20 @@ public:
 	SDL_Window* GetWindow() { return sdlWindow; }
 	SDL_GLContext GetContext() { return glContext; }
 	bool IsVulkan() const { return useVulkan; }
+	std::optional<uint32_t> CreateVulkanTextureRGBA8(const uint8_t* pixels, uint32_t width, uint32_t height);
+	bool UpdateVulkanTextureRGBA8(uint32_t handle, const uint8_t* pixels, uint32_t width, uint32_t height);
+	uint32_t GetVulkanStartupTexture() const;
+	bool SetVulkanDrawBatch(
+		std::span<const Vulkan::Vertex2D> vertices,
+		std::span<const uint32_t> indices,
+		std::span<const Vulkan::DrawRange> ranges
+	);
+	bool AppendVulkanDrawBatch(
+		std::span<const Vulkan::Vertex2D> vertices,
+		std::span<const uint32_t> indices,
+		std::span<const Vulkan::DrawRange> ranges
+	);
+	bool SetVulkanStartupTexture(const uint8_t* pixels, uint32_t width, uint32_t height);
 
 	void DestroyWindowAndContext();
 	void KillSDL() const;

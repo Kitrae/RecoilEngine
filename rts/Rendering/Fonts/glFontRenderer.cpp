@@ -8,6 +8,10 @@
 
 #include "System/Misc/TracyDefs.h"
 
+#if defined(RECOIL_VULKAN)
+#include "Rendering/Vulkan/VulkanFontRenderer.h"
+#endif
+
 
 ////////////////////////////////////////
 //can't be put in VFS due to initialization order
@@ -414,6 +418,14 @@ std::unique_ptr<CglFontRenderer> CglFontRenderer::CreateInstance()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 #ifndef HEADLESS
+	if (globalRendering->IsVulkan()) {
+#if defined(RECOIL_VULKAN)
+		return std::make_unique<CglVulkanFontRenderer>();
+#else
+		return std::make_unique<CglNullFontRenderer>();
+#endif
+	}
+
 	//return std::make_unique<CglNoShaderFontRenderer>();
 	if (globalRendering->amdHacks)
 		return std::make_unique<CglNoShaderFontRenderer>();

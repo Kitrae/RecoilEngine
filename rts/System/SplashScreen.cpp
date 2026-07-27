@@ -13,7 +13,12 @@
 #include "System/float4.h"
 #include "System/Matrix44f.h"
 #include "System/FileSystem/ArchiveScanner.h"
+#include "System/Log/ILog.h"
 #include "System/Platform/Watchdog.h"
+
+#if defined(RECOIL_VULKAN)
+#include "Rendering/Vulkan/VulkanStartupScreen.h"
+#endif
 
 #ifndef HEADLESS
 void ShowSplashScreen(
@@ -21,7 +26,23 @@ void ShowSplashScreen(
 	const std::string& springVersionStr,
 	const std::function<bool()>& testDoneFunc
 ) {
+	CBitmap bmp;
+
+	// passing an empty name would cause bmp FileHandler to also
+	// search inside the VFS since its default mode is RAW_FIRST
+	const bool useDummyImage = splashScreenFile.empty() || !bmp.Load(splashScreenFile);
+	if (useDummyImage)
+		bmp.AllocDummy({0, 0, 0, 255});
+
 	if (globalRendering->IsVulkan()) {
+		if (!globalRendering->SetVulkanStartupTexture(bmp.GetRawMem(), bmp.xsize, bmp.ysize))
+			LOG_L(L_ERROR, "[ShowSplashScreen] Failed uploading the Vulkan startup texture");
+
+#if defined(RECOIL_VULKAN)
+		if (font != nullptr && !Vulkan::ConfigureStartupScreen(*globalRendering, *font, springVersionStr))
+			LOG_L(L_ERROR, "[ShowSplashScreen] Failed preparing the Vulkan startup text");
+#endif
+
 		while (!testDoneFunc()) {
 			globalRendering->SwapBuffers(true, false);
 
@@ -32,8 +53,6 @@ void ShowSplashScreen(
 		return;
 	}
 
-	CBitmap bmp;
-
 	VA_TYPE_2DT quadElems[] = {
 		{0.0f, 1.0f,  0.0f, 0.0f},
 		{0.0f, 0.0f,  0.0f, 1.0f},
@@ -41,10 +60,7 @@ void ShowSplashScreen(
 		{1.0f, 1.0f,  1.0f, 0.0f},
 	};
 
-	// passing an empty name would cause bmp FileHandler to also
-	// search inside the VFS since its default mode is RAW_FIRST
-	if (splashScreenFile.empty() || !bmp.Load(splashScreenFile)) {
-		bmp.AllocDummy({0, 0, 0, 255});
+	if (useDummyImage) {
 		quadElems[0].x = 0.5f - 0.125f * 0.5f; quadElems[0].y = 0.5f + 0.125f * 0.5f * globalRendering->aspectRatio;
 		quadElems[1].x = 0.5f - 0.125f * 0.5f; quadElems[1].y = 0.5f - 0.125f * 0.5f * globalRendering->aspectRatio;
 		quadElems[2].x = 0.5f + 0.125f * 0.5f; quadElems[2].y = 0.5f - 0.125f * 0.5f * globalRendering->aspectRatio;

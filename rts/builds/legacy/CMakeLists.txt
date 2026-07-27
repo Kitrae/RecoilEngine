@@ -97,8 +97,8 @@ target_link_libraries(engine-legacy ${engineLibraries} Game)
 if(ENABLE_VULKAN)
 	set(vulkanShaderSourceDir "${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/Shaders")
 	set(vulkanShaderBuildDir "${CMAKE_CURRENT_BINARY_DIR}/vulkan-shaders")
-	set(vulkanVertexShaderHeader "${vulkanShaderBuildDir}/Triangle.vert.spv.h")
-	set(vulkanFragmentShaderHeader "${vulkanShaderBuildDir}/Triangle.frag.spv.h")
+	set(vulkanVertexShaderHeader "${vulkanShaderBuildDir}/Texture.vert.spv.h")
+	set(vulkanFragmentShaderHeader "${vulkanShaderBuildDir}/Texture.frag.spv.h")
 
 	add_custom_command(
 		OUTPUT "${vulkanVertexShaderHeader}"
@@ -107,10 +107,10 @@ if(ENABLE_VULKAN)
 			-V
 			--target-env vulkan1.1
 			-x
-			--vn RECOIL_VULKAN_TRIANGLE_VERT_SPV
+			--vn RECOIL_VULKAN_TEXTURE_VERT_SPV
 			-o "${vulkanVertexShaderHeader}"
-			"${vulkanShaderSourceDir}/Triangle.vert"
-		DEPENDS "${vulkanShaderSourceDir}/Triangle.vert"
+			"${vulkanShaderSourceDir}/Texture.vert"
+		DEPENDS "${vulkanShaderSourceDir}/Texture.vert"
 		VERBATIM
 	)
 	add_custom_command(
@@ -120,15 +120,24 @@ if(ENABLE_VULKAN)
 			-V
 			--target-env vulkan1.1
 			-x
-			--vn RECOIL_VULKAN_TRIANGLE_FRAG_SPV
+			--vn RECOIL_VULKAN_TEXTURE_FRAG_SPV
 			-o "${vulkanFragmentShaderHeader}"
-			"${vulkanShaderSourceDir}/Triangle.frag"
-		DEPENDS "${vulkanShaderSourceDir}/Triangle.frag"
+			"${vulkanShaderSourceDir}/Texture.frag"
+		DEPENDS "${vulkanShaderSourceDir}/Texture.frag"
 		VERBATIM
 	)
 
 	target_sources(engine-legacy PRIVATE
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanBuffer.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanContext.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanDevice.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanDrawBatch.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanFontRenderer.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanPipeline.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanStartupScreen.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanSwapchain.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanTextRenderer.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanTexture.cpp"
 		"${vulkanVertexShaderHeader}"
 		"${vulkanFragmentShaderHeader}"
 	)

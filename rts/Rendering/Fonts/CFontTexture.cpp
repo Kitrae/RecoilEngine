@@ -765,7 +765,8 @@ CFontTexture::~CFontTexture()
 	RECOIL_DETAILED_TRACY_ZONE;
 	CglFontRenderer::DeleteInstance(fontRenderer);
 #ifndef HEADLESS
-	glDeleteTextures(1, &glyphAtlasTextureID);
+	if (!globalRendering->IsVulkan())
+		glDeleteTextures(1, &glyphAtlasTextureID);
 	glyphAtlasTextureID = 0;
 #endif
 }
@@ -1043,6 +1044,31 @@ float CFontTexture::GetKerning(const GlyphInfo& lgl, const GlyphInfo& rgl)
 #endif
 }
 
+float CFontTexture::GetGlyphAdvance(char32_t left, char32_t right)
+{
+	const auto& leftGlyph = GetGlyph(left);
+	const auto& rightGlyph = GetGlyph(right);
+	if (&leftGlyph == &dummyGlyph || &rightGlyph == &dummyGlyph)
+		return leftGlyph.advance;
+
+	return GetKerning(leftGlyph, rightGlyph);
+}
+
+const CBitmap& CFontTexture::PrepareGlyphAtlas()
+{
+	UpdateGlyphAtlasTexture();
+	return atlasUpdate;
+}
+
+uint64_t CFontTexture::GetGlyphAtlasRevision() const
+{
+#ifndef HEADLESS
+	return static_cast<uint64_t>(lastTextureUpdate);
+#else
+	return 0;
+#endif
+}
+
 void CFontTexture::LoadWantedGlyphs(char32_t begin, char32_t end)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -1313,6 +1339,17 @@ void CFontTexture::CreateTexture(const int width, const int height, const bool i
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 #ifndef HEADLESS
+	if (globalRendering->IsVulkan()) {
+		if (init) {
+			atlasUpdate = {};
+			atlasUpdate.Alloc(texWidth = wantedTexWidth = width, texHeight = wantedTexHeight = height, needsColor ? 4 : 1);
+
+			atlasUpdateShadow = {};
+			atlasUpdateShadow.Alloc(width, height, needsColor ? 4 : 1);
+		}
+		return;
+	}
+
 	if (init)
 		glGenTextures(1, &glyphAtlasTextureID);
 	glBindTexture(GL_TEXTURE_2D, glyphAtlasTextureID);

@@ -1,10 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef _CFONTTEXTURE_H
-#define _CFONTTEXTURE_H
+#pragma once
 
-#include <string>
+#include <cstdint>
 #include <memory>
+#include <string>
 
 #include "System/Rectangle.h"
 #include "Rendering/Textures/Bitmap.h"
@@ -109,6 +109,7 @@ public:
 	friend class CglShaderFontRenderer;
 	friend class CglNoShaderFontRenderer;
 	friend class CglNullFontRenderer;
+	friend class CglVulkanFontRenderer;
 
 	static void InitFonts();
 	static void KillFonts();
@@ -132,6 +133,9 @@ public:
 	float GetLineHeight() const { return lineHeight; }
 	float GetDescender() const { return fontDescender; }
 	int GetTexture() const { return glyphAtlasTextureID; }
+	float GetGlyphAdvance(char32_t left, char32_t right);
+	const CBitmap& PrepareGlyphAtlas();
+	uint64_t GetGlyphAtlasRevision() const;
 
 	const std::string& GetFamily() const { return fontFamily; }
 	const std::string& GetStyle() const { return fontStyle; }
@@ -215,5 +219,3 @@ public:
 	auto GetGlyphs() const -> const decltype(glyphs) { return glyphs; }
 	auto GetGlyphs()       ->       decltype(glyphs) { return glyphs; }
 };
-
-#endif // CFONTTEXTURE_H

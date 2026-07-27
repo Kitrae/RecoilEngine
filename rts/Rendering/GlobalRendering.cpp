@@ -767,6 +767,70 @@ void CGlobalRendering::PostInit() {
 	UpdateTimer();
 }
 
+bool CGlobalRendering::SetVulkanStartupTexture(const uint8_t* pixels, uint32_t width, uint32_t height)
+{
+#if defined(RECOIL_VULKAN)
+	return IsVulkan() && vulkanContext != nullptr && vulkanContext->UploadTextureRGBA8(pixels, width, height);
+#else
+	return false;
+#endif
+}
+
+std::optional<uint32_t> CGlobalRendering::CreateVulkanTextureRGBA8(const uint8_t* pixels, uint32_t width, uint32_t height)
+{
+#if defined(RECOIL_VULKAN)
+	if (IsVulkan() && vulkanContext != nullptr)
+		return vulkanContext->CreateTextureRGBA8(pixels, width, height);
+#endif
+	return std::nullopt;
+}
+
+bool CGlobalRendering::UpdateVulkanTextureRGBA8(
+	uint32_t handle,
+	const uint8_t* pixels,
+	uint32_t width,
+	uint32_t height
+) {
+#if defined(RECOIL_VULKAN)
+	return IsVulkan() && vulkanContext != nullptr && vulkanContext->UpdateTextureRGBA8(handle, pixels, width, height);
+#else
+	return false;
+#endif
+}
+
+uint32_t CGlobalRendering::GetVulkanStartupTexture() const
+{
+#if defined(RECOIL_VULKAN)
+	if (IsVulkan() && vulkanContext != nullptr)
+		return vulkanContext->GetStartupTexture();
+#endif
+	return UINT32_MAX;
+}
+
+bool CGlobalRendering::SetVulkanDrawBatch(
+	std::span<const Vulkan::Vertex2D> vertices,
+	std::span<const uint32_t> indices,
+	std::span<const Vulkan::DrawRange> ranges
+) {
+#if defined(RECOIL_VULKAN)
+	return IsVulkan() && vulkanContext != nullptr && vulkanContext->SetDrawBatch(vertices, indices, ranges);
+#else
+	return false;
+#endif
+}
+
+bool CGlobalRendering::AppendVulkanDrawBatch(
+	std::span<const Vulkan::Vertex2D> vertices,
+	std::span<const uint32_t> indices,
+	std::span<const Vulkan::DrawRange> ranges
+) {
+#if defined(RECOIL_VULKAN)
+	return IsVulkan() && vulkanContext != nullptr && vulkanContext->AppendDrawBatch(vertices, indices, ranges);
+#else
+	return false;
+#endif
+}
+
 void CGlobalRendering::SwapBuffers(bool allowSwapBuffers, bool clearErrors)
 {
 	spring_time pre;

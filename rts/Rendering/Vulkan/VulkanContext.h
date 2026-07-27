@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,23 @@ struct SDL_Window;
 
 namespace Vulkan
 {
+	using TextureHandle = uint32_t;
+	static constexpr TextureHandle INVALID_TEXTURE_HANDLE = UINT32_MAX;
+
+	struct Vertex2D
+	{
+		std::array<float, 2> position;
+		std::array<float, 2> textureCoordinates;
+		std::array<uint8_t, 4> color;
+	};
+
+	struct DrawRange
+	{
+		uint32_t firstIndex;
+		uint32_t indexCount;
+		TextureHandle texture;
+	};
+
 	class Context
 	{
 	public:
@@ -33,9 +51,23 @@ namespace Vulkan
 
 		bool DrawFrame(const std::array<float, 4>& clearColor);
 		bool RecreateSwapchain();
+		std::optional<TextureHandle> CreateTextureRGBA8(const uint8_t* pixels, uint32_t width, uint32_t height);
+		bool UpdateTextureRGBA8(TextureHandle handle, const uint8_t* pixels, uint32_t width, uint32_t height);
+		bool SetDrawBatch(
+			std::span<const Vertex2D> vertices,
+			std::span<const uint32_t> indices,
+			std::span<const DrawRange> ranges
+		);
+		bool AppendDrawBatch(
+			std::span<const Vertex2D> vertices,
+			std::span<const uint32_t> indices,
+			std::span<const DrawRange> ranges
+		);
+		bool UploadTextureRGBA8(const uint8_t* pixels, uint32_t width, uint32_t height);
 
 		const std::string& GetDeviceName() const { return deviceName; }
 		const std::string& GetLastError() const { return lastError; }
+		TextureHandle GetStartupTexture() const { return startupTexture; }
 
 	private:
 		static constexpr std::size_t MAX_FRAMES_IN_FLIGHT = 2;
@@ -55,6 +87,26 @@ namespace Vulkan
 			std::vector<VkPresentModeKHR> presentModes;
 		};
 
+		struct FrameGeometry
+		{
+			VkBuffer buffer = VK_NULL_HANDLE;
+			VkDeviceMemory memory = VK_NULL_HANDLE;
+			void* mappedMemory = nullptr;
+			VkDeviceSize capacity = 0;
+			VkDeviceSize indexOffset = 0;
+			uint32_t indexCount = 0;
+		};
+
+		struct Texture
+		{
+			VkImage image = VK_NULL_HANDLE;
+			VkDeviceMemory memory = VK_NULL_HANDLE;
+			VkImageView imageView = VK_NULL_HANDLE;
+			VkSampler sampler = VK_NULL_HANDLE;
+			VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+			VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+		};
+
 		bool CreateInstance();
 		bool CreateDebugMessenger();
 		bool CreateSurface();
@@ -66,9 +118,28 @@ namespace Vulkan
 		bool CreateFramebuffers();
 		bool CreateCommandPool();
 		bool AllocateCommandBuffers();
+		bool CreateGeometryBuffers();
 		bool CreateSyncObjects();
 		bool CreatePresentSemaphores();
 		bool CreateShaderModule(const uint32_t* code, std::size_t size, VkShaderModule& shaderModule);
+		bool CreateBuffer(
+			VkDeviceSize size,
+			VkBufferUsageFlags usage,
+			VkMemoryPropertyFlags properties,
+			VkBuffer& buffer,
+			VkDeviceMemory& memory
+		);
+		bool ResizeGeometryBuffer(FrameGeometry& geometry, VkDeviceSize requiredSize);
+		bool UpdateGeometryBuffer(std::size_t frameIndex);
+		bool ValidateDrawBatch(
+			std::span<const Vertex2D> vertices,
+			std::span<const uint32_t> indices,
+			std::span<const DrawRange> ranges
+		);
+		bool CreateImage(uint32_t width, uint32_t height, VkImage& image, VkDeviceMemory& memory);
+		bool SubmitTextureUpload(VkBuffer stagingBuffer, VkImage image, uint32_t width, uint32_t height);
+		bool CreateTextureResource(const uint8_t* pixels, uint32_t width, uint32_t height, Texture& texture);
+		bool CreateTextureDescriptor(Texture& texture);
 		bool RecordCommandBuffer(uint32_t imageIndex, const std::array<float, 4>& clearColor);
 		static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
 			VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -78,11 +149,16 @@ namespace Vulkan
 		);
 
 		void DestroyDebugMessenger();
+		void DestroyGeometryBuffers();
+		void DestroyGeometryBuffer(FrameGeometry& geometry);
 		void DestroySwapchain();
 		void DestroySyncObjects();
+		void DestroyTexture(Texture& texture);
+		void DestroyTextures();
 
 		bool CheckValidationLayerSupport() const;
 		bool CheckDeviceExtensionSupport(VkPhysicalDevice candidate) const;
+		uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
 		QueueFamilies FindQueueFamilies(VkPhysicalDevice candidate) const;
 		SwapchainSupport QuerySwapchainSupport(VkPhysicalDevice candidate) const;
 
@@ -115,9 +191,18 @@ namespace Vulkan
 		std::vector<VkImage> swapchainImages;
 		std::vector<VkImageView> swapchainImageViews;
 		VkRenderPass renderPass = VK_NULL_HANDLE;
+		VkDescriptorSetLayout textureDescriptorSetLayout = VK_NULL_HANDLE;
 		VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 		VkPipeline graphicsPipeline = VK_NULL_HANDLE;
 		std::vector<VkFramebuffer> swapchainFramebuffers;
+
+		std::vector<Texture> textures;
+		TextureHandle startupTexture = INVALID_TEXTURE_HANDLE;
+
+		std::array<FrameGeometry, MAX_FRAMES_IN_FLIGHT> frameGeometry;
+		std::vector<Vertex2D> drawVertices;
+		std::vector<uint32_t> drawIndices;
+		std::vector<DrawRange> drawRanges;
 
 		VkCommandPool commandPool = VK_NULL_HANDLE;
 		std::vector<VkCommandBuffer> commandBuffers;

@@ -276,10 +276,10 @@ bool SpringApp::Init()
 	CBitmap::InitPool(configHandler->GetInt("TextureMemPoolSize"));
 
 	UpdateInterfaceGeometry();
+	InitFonts();
 	if (globalRendering->IsVulkan()) {
 		globalRendering->SwapBuffers(true, false);
 	} else {
-		InitFonts();
 		ClearScreen();
 	}
 
