@@ -434,6 +434,7 @@ endif()
 
 ### streflop
 option(ENABLE_STREFLOP "build Spring with streflop support (REQUIRED FOR MULTIPLAYER)" TRUE)
+option(ENABLE_VULKAN "Build the experimental Vulkan renderer" FALSE)
 
 if (ENABLE_STREFLOP)
 	set(STREFLOP_AUTO ON CACHE BOOL "Enable STREFLOP autodetection" FORCE)

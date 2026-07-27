@@ -34,6 +34,16 @@ set(OpenGL_GL_PREFERENCE LEGACY)
 find_package_static(OpenGL 3.0 REQUIRED)
 list(APPEND engineLibraries OpenGL::GL)
 
+if(ENABLE_VULKAN)
+	find_package(Vulkan 1.1 REQUIRED)
+	find_program(VULKAN_GLSLANG_VALIDATOR
+		NAMES glslangValidator
+		HINTS "$ENV{VULKAN_SDK}/Bin"
+		REQUIRED
+	)
+	list(APPEND engineLibraries Vulkan::Vulkan)
+endif()
+
 find_fontconfig_hack()
 find_package_static(Fontconfig 2.11 REQUIRED)
 list(APPEND engineLibraries Fontconfig::Fontconfig)
@@ -83,6 +93,48 @@ include_directories(${engineIncludes})
 ### Build the executable
 add_executable(engine-legacy ${EXE_FLAGS} ${engineSources} ${ENGINE_ICON} ${engineHeaders})
 target_link_libraries(engine-legacy ${engineLibraries} Game)
+
+if(ENABLE_VULKAN)
+	set(vulkanShaderSourceDir "${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/Shaders")
+	set(vulkanShaderBuildDir "${CMAKE_CURRENT_BINARY_DIR}/vulkan-shaders")
+	set(vulkanVertexShaderHeader "${vulkanShaderBuildDir}/Triangle.vert.spv.h")
+	set(vulkanFragmentShaderHeader "${vulkanShaderBuildDir}/Triangle.frag.spv.h")
+
+	add_custom_command(
+		OUTPUT "${vulkanVertexShaderHeader}"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${vulkanShaderBuildDir}"
+		COMMAND "${VULKAN_GLSLANG_VALIDATOR}"
+			-V
+			--target-env vulkan1.1
+			-x
+			--vn RECOIL_VULKAN_TRIANGLE_VERT_SPV
+			-o "${vulkanVertexShaderHeader}"
+			"${vulkanShaderSourceDir}/Triangle.vert"
+		DEPENDS "${vulkanShaderSourceDir}/Triangle.vert"
+		VERBATIM
+	)
+	add_custom_command(
+		OUTPUT "${vulkanFragmentShaderHeader}"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${vulkanShaderBuildDir}"
+		COMMAND "${VULKAN_GLSLANG_VALIDATOR}"
+			-V
+			--target-env vulkan1.1
+			-x
+			--vn RECOIL_VULKAN_TRIANGLE_FRAG_SPV
+			-o "${vulkanFragmentShaderHeader}"
+			"${vulkanShaderSourceDir}/Triangle.frag"
+		DEPENDS "${vulkanShaderSourceDir}/Triangle.frag"
+		VERBATIM
+	)
+
+	target_sources(engine-legacy PRIVATE
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanContext.cpp"
+		"${vulkanVertexShaderHeader}"
+		"${vulkanFragmentShaderHeader}"
+	)
+	target_include_directories(engine-legacy PRIVATE "${vulkanShaderBuildDir}")
+	target_compile_definitions(engine-legacy PRIVATE RECOIL_VULKAN)
+endif()
 
 # Export symbols for plugin access (replaces CMP0065 OLD behavior)
 set_target_properties(engine-legacy PROPERTIES ENABLE_EXPORTS TRUE)

@@ -6,6 +6,10 @@
 
 #include <SDL.h>
 
+#if defined(RECOIL_VULKAN)
+#include <SDL_vulkan.h>
+#endif
+
 #include "GlobalRendering.h"
 #include "GlobalRenderingInfo.h"
 #include "Rendering/VerticalSync.h"
@@ -18,6 +22,9 @@
 #include "Rendering/UniformConstants.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/Models/ModelsMemStorage.h"
+#if defined(RECOIL_VULKAN)
+#include "Rendering/Vulkan/VulkanContext.h"
+#endif
 #include "System/EventHandler.h"
 #include "System/type2.h"
 #include "System/TimeProfiler.h"
@@ -46,6 +53,8 @@
 CONFIG(bool, DebugGL).defaultValue(false).description("Enables GL debug-context and output. (see GL_ARB_debug_output)");
 CONFIG(bool, DebugGLStacktraces).defaultValue(false).description("Create a stacktrace when an OpenGL error occurs");
 CONFIG(bool, DebugGLReportGroups).defaultValue(false).description("Show OpenGL PUSH/POP groups in the GL debug");
+CONFIG(std::string, RenderingBackend).defaultValue("OpenGL").description("Rendering backend to use. Supported values are OpenGL and Vulkan.");
+CONFIG(bool, VulkanValidation).defaultValue(false).description("Enables Vulkan validation layers.");
 
 CONFIG(int, GLContextMajorVersion).defaultValue(3).minimumValue(3).maximumValue(4);
 CONFIG(int, GLContextMinorVersion).defaultValue(0).minimumValue(0).maximumValue(5);
@@ -346,6 +355,8 @@ CGlobalRendering::CGlobalRendering()
 	, glContext{nullptr}
 	, glExtensions{}
 	, glTimerQueries{0}
+	, useVulkan(StringToLower(configHandler->GetString("RenderingBackend")) == "vulkan")
+	, vulkanContext(nullptr)
 {
 #ifdef _WIN32
 	dwmApiLib = std::unique_ptr<SharedLib>(SharedLib::Instantiate("dwmapi"));
@@ -388,6 +399,9 @@ CGlobalRendering::~CGlobalRendering()
 
 void CGlobalRendering::PreKill()
 {
+	if (IsVulkan())
+		return;
+
 	UniformConstants::GetInstance().Kill(); //unsafe to kill in ~CGlobalRendering()
 	RenderBuffer::KillStatic();
 	GL::shapes.Kill();
@@ -425,11 +439,24 @@ SDL_Window* CGlobalRendering::CreateSDLWindow(const char* title) const
 	//   SDL_WINDOW_FULLSCREEN_DESKTOP for "fake" fullscreen that takes the size of the desktop;
 	//   and 0 for windowed mode.
 
-	uint32_t sdlFlags  = (SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+	uint32_t sdlFlags  = ((IsVulkan() ? SDL_WINDOW_VULKAN : SDL_WINDOW_OPENGL) | SDL_WINDOW_RESIZABLE);
 	         sdlFlags |= (borderless_ ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN) * fullScreen_;
 	         sdlFlags |= (SDL_WINDOW_BORDERLESS * borderless_);
 
+	if (IsVulkan()) {
+		newWindow = SDL_CreateWindow(title, winPosX_, winPosY_, newRes.x, newRes.y, sdlFlags);
+
+		if (newWindow == nullptr) {
+			LOG_L(L_WARNING, "[GR::%s] error \"%s\" creating Vulkan window", __func__, SDL_GetError());
+		} else {
+			LOG("[GR::%s] created Vulkan window", __func__);
+		}
+	}
+
 	for (size_t i = 0; i < (aaLvls.size()) && (newWindow == nullptr); i++) {
+		if (IsVulkan())
+			break;
+
 		if (i > 0 && aaLvls[i] == aaLvls[i - 1])
 			break;
 
@@ -527,6 +554,49 @@ bool CGlobalRendering::CreateWindowAndContext(const char* title)
 		return false;
 	}
 
+	if (IsVulkan()) {
+#if !defined(RECOIL_VULKAN)
+		handleerror(nullptr, "Vulkan was requested, but this build does not include Vulkan support", "ERROR", MBF_OK | MBF_EXCL);
+		return false;
+#else
+		if (SDL_Vulkan_LoadLibrary(nullptr) != 0) {
+			LOG_L(L_FATAL, "[GR::%s] error \"%s\" loading Vulkan", __func__, SDL_GetError());
+			return false;
+		}
+
+		if ((sdlWindow = CreateSDLWindow(title)) == nullptr) {
+			SDL_Vulkan_UnloadLibrary();
+			return false;
+		}
+
+		if (configHandler->GetInt("MinimizeOnFocusLoss") == 0)
+			SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+
+		SetWindowAttributes(sdlWindow);
+
+#if !defined(HEADLESS)
+		if (configHandler->GetBool("BlockCompositing"))
+			WindowManagerHelper::BlockCompositing(sdlWindow);
+#endif
+
+		vulkanContext = new Vulkan::Context();
+		const bool enableValidation = configHandler->GetBool("VulkanValidation");
+		const auto logCallback = [](const char* message) { LOG_L(L_WARNING, "%s", message); };
+
+		if (!vulkanContext->Initialize(sdlWindow, enableValidation, logCallback)) {
+			const std::string error = vulkanContext->GetLastError();
+			DestroyWindowAndContext();
+			handleerror(nullptr, error.c_str(), "Vulkan initialization failed", MBF_OK | MBF_EXCL);
+			return false;
+		}
+
+		LOG("[GR::%s] initialized Vulkan device \"%s\"", __func__, vulkanContext->GetDeviceName().c_str());
+
+		SDL_DisableScreenSaver();
+		return true;
+#endif
+	}
+
 	// should be set to "3.0" (non-core Mesa is stuck there), see below
 	const char* mesaGL = getenv("MESA_GL_VERSION_OVERRIDE");
 	const char* softGL = getenv("LIBGL_ALWAYS_SOFTWARE");
@@ -610,6 +680,9 @@ bool CGlobalRendering::CreateWindowAndContext(const char* title)
 
 
 void CGlobalRendering::MakeCurrentContext(bool clear) const {
+	if (IsVulkan())
+		return;
+
 	SDL_GL_MakeCurrent(sdlWindow, clear ? nullptr : glContext);
 }
 
@@ -618,8 +691,26 @@ void CGlobalRendering::DestroyWindowAndContext() {
 	if (!sdlWindow)
 		return;
 
+#if defined(RECOIL_VULKAN)
+	if (vulkanContext) {
+		vulkanContext->Shutdown();
+		delete vulkanContext;
+		vulkanContext = nullptr;
+	}
+#endif
+
 	WindowManagerHelper::SetIconSurface(sdlWindow, nullptr);
 	SetWindowInputGrabbing(false);
+
+	if (IsVulkan()) {
+		SDL_DestroyWindow(sdlWindow);
+		sdlWindow = nullptr;
+
+#if defined(RECOIL_VULKAN)
+		SDL_Vulkan_UnloadLibrary();
+#endif
+		return;
+	}
 
 	SDL_GL_MakeCurrent(sdlWindow, nullptr);
 	SDL_DestroyWindow(sdlWindow);
@@ -645,6 +736,14 @@ void CGlobalRendering::KillSDL() const {
 }
 
 void CGlobalRendering::PostInit() {
+	if (IsVulkan()) {
+#if defined(RECOIL_VULKAN)
+		LOG("[GR::%s] Vulkan device \"%s\"", __func__, vulkanContext->GetDeviceName().c_str());
+#endif
+		UpdateTimer();
+		return;
+	}
+
 	// glewInit sets GL_INVALID_ENUM, get rid of it
 	glGetError();
 
@@ -671,6 +770,26 @@ void CGlobalRendering::PostInit() {
 void CGlobalRendering::SwapBuffers(bool allowSwapBuffers, bool clearErrors)
 {
 	spring_time pre;
+
+	if (IsVulkan()) {
+		assert(sdlWindow);
+
+		if (!allowSwapBuffers && !forceSwapBuffers)
+			return;
+
+		pre = spring_now();
+
+#if defined(RECOIL_VULKAN)
+		if (!vulkanContext->DrawFrame({0.0f, 0.0f, 0.0f, 1.0f}))
+			LOG_L(L_ERROR, "[GR::%s] %s", __func__, vulkanContext->GetLastError().c_str());
+#endif
+
+		FrameMark;
+		eventHandler.DbgTimingInfo(TIMING_SWAP, pre, spring_now());
+		lastSwapBuffersEnd = spring_now();
+		return;
+	}
+
 	{
 		SCOPED_TIMER("Misc::SwapBuffers");
 		SCOPED_GL_DEBUGGROUP("Misc::SwapBuffers");
@@ -719,6 +838,9 @@ void CGlobalRendering::SwapBuffers(bool allowSwapBuffers, bool clearErrors)
 
 void CGlobalRendering::SetGLTimeStamp(uint32_t queryIdx) const
 {
+	if (IsVulkan())
+		return;
+
 	if (!GLAD_GL_ARB_timer_query)
 		return;
 
@@ -727,6 +849,9 @@ void CGlobalRendering::SetGLTimeStamp(uint32_t queryIdx) const
 
 uint64_t CGlobalRendering::CalcGLDeltaTime(uint32_t queryIdx0, uint32_t queryIdx1) const
 {
+	if (IsVulkan())
+		return 0;
+
 	if (!GLAD_GL_ARB_timer_query)
 		return 0;
 
@@ -1608,6 +1733,9 @@ void CGlobalRendering::UpdateGLConfigs()
 {
 	LOG("[GR::%s]", __func__);
 
+	if (IsVulkan())
+		return;
+
 	// re-read configuration value
 	verticalSync->SetInterval();
 }
@@ -1701,6 +1829,11 @@ void CGlobalRendering::UpdateGLGeometry()
 void CGlobalRendering::InitGLState()
 {
 	LOG("[GR::%s]", __func__);
+
+	if (IsVulkan()) {
+		LogDisplayMode(sdlWindow);
+		return;
+	}
 
 	glShadeModel(GL_SMOOTH);
 

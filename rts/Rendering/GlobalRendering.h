@@ -1,7 +1,6 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef _GLOBAL_RENDERING_H
-#define _GLOBAL_RENDERING_H
+#pragma once
 
 #include <string>
 #include <memory>
@@ -18,6 +17,11 @@ struct SDL_version;
 struct SDL_Rect;
 struct SDL_Window;
 typedef void* SDL_GLContext;
+
+namespace Vulkan
+{
+	class Context;
+}
 
 /**
  * @brief Globally accessible unsynced, rendering related data
@@ -47,6 +51,7 @@ public:
 	SDL_GLContext CreateGLContext(const int2& minCtx);
 	SDL_Window* GetWindow() { return sdlWindow; }
 	SDL_GLContext GetContext() { return glContext; }
+	bool IsVulkan() const { return useVulkan; }
 
 	void DestroyWindowAndContext();
 	void KillSDL() const;
@@ -417,12 +422,11 @@ private:
 	spring::unordered_set<std::string> glExtensions;
 	// double-buffered; results from frame N become available on frame N+1
 	std::array<uint32_t, NUM_OPENGL_TIMER_QUERIES * 2> glTimerQueries;
+	bool useVulkan;
+	Vulkan::Context* vulkanContext;
 private:
 	static constexpr inline const char* xsKeys[2] = { "XResolutionWindowed", "XResolution" };
 	static constexpr inline const char* ysKeys[2] = { "YResolutionWindowed", "YResolution" };
 };
 
 extern CGlobalRendering* globalRendering;
-
-#endif /* _GLOBAL_RENDERING_H */
-

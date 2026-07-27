@@ -61,10 +61,14 @@ namespace Vulkan
 		bool SelectPhysicalDevice();
 		bool CreateDevice();
 		bool CreateSwapchain();
+		bool CreateRenderPass();
+		bool CreateGraphicsPipeline();
+		bool CreateFramebuffers();
 		bool CreateCommandPool();
 		bool AllocateCommandBuffers();
 		bool CreateSyncObjects();
 		bool CreatePresentSemaphores();
+		bool CreateShaderModule(const uint32_t* code, std::size_t size, VkShaderModule& shaderModule);
 		bool RecordCommandBuffer(uint32_t imageIndex, const std::array<float, 4>& clearColor);
 		static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
 			VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -110,6 +114,10 @@ namespace Vulkan
 		VkExtent2D swapchainExtent{};
 		std::vector<VkImage> swapchainImages;
 		std::vector<VkImageView> swapchainImageViews;
+		VkRenderPass renderPass = VK_NULL_HANDLE;
+		VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+		VkPipeline graphicsPipeline = VK_NULL_HANDLE;
+		std::vector<VkFramebuffer> swapchainFramebuffers;
 
 		VkCommandPool commandPool = VK_NULL_HANDLE;
 		std::vector<VkCommandBuffer> commandBuffers;

@@ -21,6 +21,17 @@ void ShowSplashScreen(
 	const std::string& springVersionStr,
 	const std::function<bool()>& testDoneFunc
 ) {
+	if (globalRendering->IsVulkan()) {
+		while (!testDoneFunc()) {
+			globalRendering->SwapBuffers(true, false);
+
+			SDL_Event event;
+			while (SDL_PollEvent(&event)) {}
+			Watchdog::ClearTimer(WDT_MAIN);
+		}
+		return;
+	}
+
 	CBitmap bmp;
 
 	VA_TYPE_2DT quadElems[] = {
@@ -117,4 +128,3 @@ void ShowSplashScreen(
 	glDeleteTextures(1, &splashTex);
 }
 #endif
-

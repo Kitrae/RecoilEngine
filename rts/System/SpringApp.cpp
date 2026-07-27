@@ -276,15 +276,30 @@ bool SpringApp::Init()
 	CBitmap::InitPool(configHandler->GetInt("TextureMemPoolSize"));
 
 	UpdateInterfaceGeometry();
-	InitFonts();
-
-	ClearScreen();
+	if (globalRendering->IsVulkan()) {
+		globalRendering->SwapBuffers(true, false);
+	} else {
+		InitFonts();
+		ClearScreen();
+	}
 
 	if (!InitFileSystem())
 		return false;
 
 	// Affinity
 	Threading::SetThreadScheduler();
+
+	if (globalRendering->IsVulkan()) {
+		inputToken = input.AddHandler([](const SDL_Event& event) {
+			if (event.type == SDL_QUIT || (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE))
+				gu->globalQuit = true;
+
+			return false;
+		});
+
+		LOG("[SpringApp::%s] Vulkan startup reached the engine frame loop", __func__);
+		return true;
+	}
 
 	CInfoConsole::InitStatic();
 	CMouseHandler::InitStatic();
@@ -890,7 +905,7 @@ bool SpringApp::Update()
 	retc = (        activeController == nullptr || activeController->Update());
 
 	auto lock = CLoadLock::GetUniqueLock();
-	swap = (retc && activeController != nullptr && activeController->Draw());
+	swap = globalRendering->IsVulkan() || (retc && activeController != nullptr && activeController->Draw());
 	#endif
 
 	// always swap by default, not doing so can upset some drivers
