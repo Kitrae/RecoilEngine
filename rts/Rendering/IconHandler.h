@@ -125,7 +125,8 @@ namespace icon {
 			std::array<int2, 2> atlasTextureSizes = {};
 			std::array<std::unique_ptr<CTextureRenderAtlas>, 2> atlases;
 			std::bitset<2> atlasNeedsUpdate = { false };
-	};
+			std::bitset<2> vulkanAtlasTextures = { false };
+		};
 
 	extern CIconHandler iconHandler;
 }

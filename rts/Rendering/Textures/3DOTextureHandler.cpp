@@ -11,6 +11,7 @@
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/Textures/IAtlasAllocator.h"
 #include "Rendering/Textures/TextureAtlas.h"
+#include "Rendering/Vulkan/VulkanTexture.h"
 #include "TAPalette.h"
 #include "System/Exceptions.h"
 #include "System/UnorderedSet.hpp"
@@ -123,7 +124,36 @@ void C3DOTextureHandler::Init()
 
 	numLevels = atlasAlloc->GetNumTexLevels();
 
-	{
+	if (globalRendering->IsVulkan()) {
+		const auto texture1 = globalRendering->CreateVulkanTexture(
+			bigtex1.data(),
+			bigtex1.size(),
+			curAtlasSize.x,
+			curAtlasSize.y,
+			Vulkan::TextureFormat::Rgba8Srgb
+		);
+		if (!texture1.has_value()) {
+			LOG_L(L_ERROR, "[%s] failed to create Vulkan 3DO color atlas", __func__);
+			return;
+		}
+
+		const auto texture2 = globalRendering->CreateVulkanTexture(
+			bigtex2.data(),
+			bigtex2.size(),
+			curAtlasSize.x,
+			curAtlasSize.y,
+			Vulkan::TextureFormat::Rgba8Unorm
+		);
+		if (!texture2.has_value()) {
+			globalRendering->DestroyVulkanTexture(*texture1);
+			LOG_L(L_ERROR, "[%s] failed to create Vulkan 3DO material atlas", __func__);
+			return;
+		}
+
+		atlas3do1 = *texture1;
+		atlas3do2 = *texture2;
+		vulkanAtlases = true;
+	} else {
 		glGenTextures(1, &atlas3do1);
 		glBindTexture(GL_TEXTURE_2D, atlas3do1);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -137,8 +167,7 @@ void C3DOTextureHandler::Init()
 		} else {
 			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, bigtex1.data());
 		}
-	}
-	{
+
 		glGenTextures(1, &atlas3do2);
 		glBindTexture(GL_TEXTURE_2D, atlas3do2);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -166,11 +195,17 @@ void C3DOTextureHandler::Init()
 void C3DOTextureHandler::Kill()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glDeleteTextures(1, &atlas3do1);
-	glDeleteTextures(1, &atlas3do2);
+	if (vulkanAtlases) {
+		globalRendering->DestroyVulkanTexture(atlas3do1);
+		globalRendering->DestroyVulkanTexture(atlas3do2);
+	} else {
+		glDeleteTextures(1, &atlas3do1);
+		glDeleteTextures(1, &atlas3do2);
+	}
 
 	atlas3do1 = 0;
 	atlas3do2 = 0;
+	vulkanAtlases = false;
 
 	textures.clear();
 }
@@ -178,6 +213,9 @@ void C3DOTextureHandler::Kill()
 void C3DOTextureHandler::DumpAtlasTextures(const std::string& fileExt) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (vulkanAtlases)
+		return;
+
 	if (atlas3do1) {
 		for (int level = 0; level < numLevels; ++level) {
 			glSaveTexture(atlas3do1, fmt::format("3DOAtlas1-{}.{}", level, fileExt).c_str(), level);
@@ -296,4 +334,3 @@ TexFile C3DOTextureHandler::CreateTex(const std::string& name, const std::string
 
 	return texFile;
 }
-

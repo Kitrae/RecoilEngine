@@ -38,6 +38,11 @@ void DepthBufferCopy::Kill()
 
 void DepthBufferCopy::AddConsumer(bool ms)
 {
+	if (globalRendering->IsVulkan()) {
+		consumersCount[ms]++;
+		return;
+	}
+
 	if (consumersCount[ms] == 0)
 		CreateTextureAndFBO(ms);
 
@@ -47,6 +52,9 @@ void DepthBufferCopy::AddConsumer(bool ms)
 void DepthBufferCopy::DelConsumer(bool ms)
 {
 	consumersCount[ms]--;
+
+	if (globalRendering->IsVulkan())
+		return;
 
 	if (consumersCount[ms] == 0)
 		DestroyTextureAndFBO(ms);
@@ -63,12 +71,18 @@ void DepthBufferCopy::ViewResize()
 }
 
 bool DepthBufferCopy::IsValid(bool ms) const {
+	if (globalRendering->IsVulkan())
+		return false;
+
 	const auto& depthFBO = depthFBOs[ms];
 	return depthFBO && depthFBO->IsValid() && depthTextures[ms] > 0;
 }
 
 void DepthBufferCopy::MakeDepthBufferCopy() const
 {
+	if (globalRendering->IsVulkan())
+		return;
+
 	const std::array<int, 4> srcScreenRect = { globalRendering->viewPosX, globalRendering->viewPosY, globalRendering->viewPosX + globalRendering->viewSizeX, globalRendering->viewPosY + globalRendering->viewSizeY };
 	const std::array<int, 4> dstScreenRect = { 0, 0, globalRendering->viewSizeX, globalRendering->viewSizeY };
 

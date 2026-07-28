@@ -1,6 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 #pragma once
 
+#include <limits>
 #include <memory>
 
 #include "Rendering/Models/VertexData.hpp"
@@ -47,6 +48,7 @@ public:
 	static constexpr size_t INSTANCE_BUFFER_NUM_ELEMS = INSTANCE_BUFFER_NUM_BATCHED + INSTANCE_BUFFER_NUM_IMMEDIATE;
 public:
 	explicit S3DModelVAO();
+	~S3DModelVAO();
 
 	uint32_t GetVertOffset() const { return static_cast<uint32_t>(vertData.size()); }
 
@@ -125,6 +127,12 @@ private:
 
 	VBO instVBO;
 	VAO vao;
+
+	uint32_t vulkanVertBuffer = std::numeric_limits<uint32_t>::max();
+	uint32_t vulkanIndxBuffer = std::numeric_limits<uint32_t>::max();
+	uint32_t vulkanInstBuffer = std::numeric_limits<uint32_t>::max();
+	size_t vulkanVertCapacity = 0;
+	size_t vulkanIndxCapacity = 0;
 
 	std::unordered_map<SIndexAndCount, std::vector<SInstanceData>, SIndexAndCount> modelDataToInstance;
 };

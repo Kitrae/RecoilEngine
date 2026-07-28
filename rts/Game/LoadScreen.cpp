@@ -17,6 +17,9 @@
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/Textures/NamedTextures.h"
+#if defined(RECOIL_VULKAN) && !defined(HEADLESS)
+#include "Rendering/Vulkan/VulkanLoadingScreen.h"
+#endif
 #include "Sim/Misc/TeamHandler.h"
 #include "Sim/Path/IPathManager.h"
 #include "System/Config/ConfigHandler.h"
@@ -101,7 +104,7 @@ bool CLoadScreen::Init()
 #else
 	const int mtCfg = configHandler->GetInt("LoadingMT");
 	// user override
-	mtLoading = (mtCfg > 0);
+	mtLoading = !globalRendering->IsVulkan() && (mtCfg > 0);
 #endif
 
 
@@ -134,7 +137,7 @@ bool CLoadScreen::Init()
 	// note that it has access to gl.LoadFont (which creates a user
 	// data wrapping a local font) but also to gl.*Text (which uses
 	// the global font), the latter will cause problems in GL4
-	{
+	if (!globalRendering->IsVulkan()) {
 		auto lock = CLoadLock::GetUniqueLock();
 		CLuaIntro::LoadFreeHandler();
 	}
@@ -153,10 +156,12 @@ void CLoadScreen::Kill()
 	if (mtLoading && !gameLoadThread.joinable())
 		return;
 
-	if (luaIntro != nullptr)
-		luaIntro->Shutdown();
+	if (!globalRendering->IsVulkan()) {
+		if (luaIntro != nullptr)
+			luaIntro->Shutdown();
 
-	CLuaIntro::FreeHandler();
+		CLuaIntro::FreeHandler();
+	}
 
 	// at this point, gameLoadThread running CGame::Load
 	// has finished and deregistered itself from WatchDog
@@ -164,9 +169,11 @@ void CLoadScreen::Kill()
 
 	CFontTexture::sync.SetThreadSafety(false);
 	CLoadLock::SetThreadSafety(false);
-	// set last time and forever
-	globalRendering->MakeCurrentContext(false);
-	globalRendering->ToggleMultisampling();
+	if (!globalRendering->IsVulkan()) {
+		// set last time and forever
+		globalRendering->MakeCurrentContext(false);
+		globalRendering->ToggleMultisampling();
+	}
 }
 
 
@@ -260,7 +267,17 @@ bool CLoadScreen::Update()
 {
 	ZoneScoped;
 
-	if (luaIntro != nullptr) {
+	if (globalRendering->IsVulkan()) {
+		std::lock_guard<spring::recursive_mutex> lck(mutex);
+
+		for (const auto& [message, replaceLast]: loadMessages) {
+			if (replaceLast && !nativeLoadMessages.empty())
+				nativeLoadMessages.back() = message;
+			else
+				nativeLoadMessages.push_back(message);
+		}
+		loadMessages.clear();
+	} else if (luaIntro != nullptr) {
 		// keep checking this while we are the active controller
 		std::lock_guard<spring::recursive_mutex> lck(mutex);
 
@@ -308,6 +325,20 @@ bool CLoadScreen::Draw()
 	if (luaMenu != nullptr)
 		luaMenu->Update();
 
+#if defined(RECOIL_VULKAN) && !defined(HEADLESS)
+	if (globalRendering->IsVulkan()) {
+		globalRendering->BeginVulkanFrame();
+		if (!Vulkan::DrawLoadingScreen(
+			*globalRendering,
+			*font,
+			nativeLoadMessages,
+			mapFileName,
+			modFileName
+		)) {
+			LOG_L(L_ERROR, "[LoadScreen::%s] Failed preparing the Vulkan loading frame", __func__);
+		}
+	} else
+#endif
 	if (luaIntro != nullptr) {
 		luaIntro->Update();
 		luaIntro->DrawGenesis();
@@ -348,4 +379,3 @@ void CLoadScreen::SetLoadMessage(const std::string& text, bool replaceLast)
 	Update();
 	Draw();
 }
-

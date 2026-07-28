@@ -26,6 +26,11 @@
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "Rendering/Textures/Bitmap.h"
+#if defined(RECOIL_VULKAN)
+#include "Rendering/Vulkan/VulkanMapShading.h"
+#include "Rendering/Vulkan/VulkanMapTexture.h"
+#include "Rendering/Vulkan/VulkanTexture.h"
+#endif
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
 #include "System/Exceptions.h"
@@ -53,6 +58,33 @@ std::vector<float> CSMFReadMap::cornerHeightMapSynced;
 std::vector<float> CSMFReadMap::cornerHeightMapUnsynced;
 
 static std::vector<float> normalPixels;
+
+namespace
+{
+	void UploadMapTexture(
+		CBitmap& bitmap,
+		MapTexture& mapTexture,
+		float anisotropy = 0.0f,
+		bool mipmaps = false
+	) {
+#if defined(RECOIL_VULKAN)
+		if (globalRendering->IsVulkan()) {
+			const auto texture = Vulkan::CreateMapTexture(*globalRendering, bitmap);
+			if (!texture.has_value())
+				throw content_error("Failed uploading an SMF map texture to Vulkan");
+
+			mapTexture.SetRawVulkanTexID(texture.value());
+			mapTexture.SetRawSize(int2(bitmap.xsize, bitmap.ysize));
+			return;
+		}
+#endif
+		const uint32_t texture = mipmaps
+			? bitmap.CreateMipMapTexture(anisotropy, 0.0f, 0)
+			: bitmap.CreateTexture();
+		mapTexture.SetRawTexID(texture);
+		mapTexture.SetRawSize(int2(bitmap.xsize, bitmap.ysize));
+	}
+}
 
 CSMFReadMap::CSMFReadMap(const std::string& mapName): CEventClient("[CSMFReadMap]", 271950, false)
 {
@@ -164,6 +196,17 @@ void CSMFReadMap::LoadMinimap()
 	CBitmap minimapTexBM;
 
 	if (minimapTexBM.Load(mapInfo->smf.minimapTexName)) {
+#if defined(RECOIL_VULKAN)
+		if (globalRendering->IsVulkan()) {
+			const auto texture = Vulkan::CreateMapTexture(*globalRendering, minimapTexBM);
+			if (!texture.has_value())
+				throw content_error("Failed uploading the SMF minimap texture to Vulkan");
+
+			minimapTex.SetRawVulkanTexID(texture.value());
+			minimapTex.SetRawSize(int2(minimapTexBM.xsize, minimapTexBM.ysize));
+			return;
+		}
+#endif
 		minimapTex.SetRawTexID(minimapTexBM.CreateTexture());
 		minimapTex.SetRawSize(int2(minimapTexBM.xsize, minimapTexBM.ysize));
 		return;
@@ -174,6 +217,23 @@ void CSMFReadMap::LoadMinimap()
 	mapFile.ReadMinimap(&minimapTexBuf[0]);
 	// default; only valid for mip 0
 	minimapTex.SetRawSize(int2(1024, 1024));
+
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		constexpr std::size_t baseLevelSize = 1024 * 1024 / 2;
+		const auto texture = Vulkan::CreateDxt1MapTexture(
+			*globalRendering,
+			std::span<const uint8_t>(minimapTexBuf.data(), baseLevelSize),
+			1024,
+			1024
+		);
+		if (!texture.has_value())
+			throw content_error("Failed uploading the SMF minimap texture to Vulkan");
+
+		minimapTex.SetRawVulkanTexID(texture.value());
+		return;
+	}
+#endif
 
 	glGenTextures(1, minimapTex.GetIDPtr());
 	glBindTexture(GL_TEXTURE_2D, minimapTex.GetID());
@@ -204,8 +264,7 @@ void CSMFReadMap::CreateSpecularTex()
 			specularTexBM.AllocDummy(SColor(255, 255, 255, 255));
 		}
 
-		specularTex.SetRawTexID(specularTexBM.CreateTexture());
-		specularTex.SetRawSize(int2(specularTexBM.xsize, specularTexBM.ysize));
+		UploadMapTexture(specularTexBM, specularTex);
 	}
 
 	{
@@ -213,8 +272,7 @@ void CSMFReadMap::CreateSpecularTex()
 
 		// no default 1x1 textures for these
 		if (skyReflectModTexBM.Load(mapInfo->smf.skyReflectModTexName)) {
-			skyReflectModTex.SetRawTexID(skyReflectModTexBM.CreateTexture());
-			skyReflectModTex.SetRawSize(int2(skyReflectModTexBM.xsize, skyReflectModTexBM.ysize));
+			UploadMapTexture(skyReflectModTexBM, skyReflectModTex);
 		}
 	}
 
@@ -222,8 +280,7 @@ void CSMFReadMap::CreateSpecularTex()
 		CBitmap blendNormalsTexBM;
 
 		if (blendNormalsTexBM.Load(mapInfo->smf.blendNormalsTexName)) {
-			blendNormalsTex.SetRawTexID(blendNormalsTexBM.CreateTexture());
-			blendNormalsTex.SetRawSize(int2(blendNormalsTexBM.xsize, blendNormalsTexBM.ysize));
+			UploadMapTexture(blendNormalsTexBM, blendNormalsTex);
 		}
 	}
 
@@ -231,8 +288,7 @@ void CSMFReadMap::CreateSpecularTex()
 		CBitmap lightEmissionTexBM;
 
 		if (lightEmissionTexBM.Load(mapInfo->smf.lightEmissionTexName)) {
-			lightEmissionTex.SetRawTexID(lightEmissionTexBM.CreateTexture());
-			lightEmissionTex.SetRawSize(int2(lightEmissionTexBM.xsize, lightEmissionTexBM.ysize));
+			UploadMapTexture(lightEmissionTexBM, lightEmissionTex);
 		}
 	}
 
@@ -240,8 +296,7 @@ void CSMFReadMap::CreateSpecularTex()
 		CBitmap parallaxHeightTexBM;
 
 		if (parallaxHeightTexBM.Load(mapInfo->smf.parallaxHeightTexName)) {
-			parallaxHeightTex.SetRawTexID(parallaxHeightTexBM.CreateTexture());
-			parallaxHeightTex.SetRawSize(int2(parallaxHeightTexBM.xsize, parallaxHeightTexBM.ysize));
+			UploadMapTexture(parallaxHeightTexBM, parallaxHeightTex);
 		}
 	}
 }
@@ -273,8 +328,7 @@ void CSMFReadMap::CreateSplatDetailTextures()
 			splatDetailTexBM.AllocDummy(SColor(127, 127, 127, 127));
 		}
 
-		splatDetailTex.SetRawTexID(splatDetailTexBM.CreateMipMapTexture(texAnisotropyLevels[true], 0.0f, 0));
-		splatDetailTex.SetRawSize(int2(splatDetailTexBM.xsize, splatDetailTexBM.ysize));
+		UploadMapTexture(splatDetailTexBM, splatDetailTex, texAnisotropyLevels[true], true);
 	}
 
 	{
@@ -291,8 +345,7 @@ void CSMFReadMap::CreateSplatDetailTextures()
 			splatDistrTexBM.AllocDummy(SColor(255, 0, 0, 0));
 		}
 
-		splatDistrTex.SetRawTexID(splatDistrTexBM.CreateMipMapTexture(texAnisotropyLevels[true], 0.0f, 0));
-		splatDistrTex.SetRawSize(int2(splatDistrTexBM.xsize, splatDistrTexBM.ysize));
+		UploadMapTexture(splatDistrTexBM, splatDistrTex, texAnisotropyLevels[true], true);
 	}
 
 	// only load the splat detail normals if any of them are defined and present
@@ -315,8 +368,12 @@ void CSMFReadMap::CreateSplatDetailTextures()
 			splatDetailNormalTextureBM.GetRawMem()[3] = 127; // Alpha is diffuse as in old-style detail textures
 		}
 
-		splatNormalTextures[i].SetRawTexID(splatDetailNormalTextureBM.CreateMipMapTexture(texAnisotropyLevels[true], 0.0f, 0));
-		splatNormalTextures[i].SetRawSize(int2(splatDetailNormalTextureBM.xsize, splatDetailNormalTextureBM.ysize));
+		UploadMapTexture(
+			splatDetailNormalTextureBM,
+			splatNormalTextures[i],
+			texAnisotropyLevels[true],
+			true
+		);
 		loadedSplatNormals += (splatNormalTextures[i].GetID() != 0);
 	}
 
@@ -328,7 +385,12 @@ void CSMFReadMap::CreateSplatDetailTextures()
 void CSMFReadMap::CreateGrassTex()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	grassShadingTex.SetRawTexID(minimapTex.GetID());
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan())
+		grassShadingTex.SetRawVulkanTexID(minimapTex.GetID(), false);
+	else
+#endif
+		grassShadingTex.SetRawTexID(minimapTex.GetID(), false);
 	grassShadingTex.SetRawSize(int2(1024, 1024));
 
 	CBitmap grassShadingTexBM;
@@ -337,8 +399,7 @@ void CSMFReadMap::CreateGrassTex()
 		return;
 
 	// override minimap
-	grassShadingTex.SetRawTexID(grassShadingTexBM.CreateMipMapTexture());
-	grassShadingTex.SetRawSize(int2(grassShadingTexBM.xsize, grassShadingTexBM.ysize));
+	UploadMapTexture(grassShadingTexBM, grassShadingTex, 0.0f, true);
 }
 
 
@@ -352,8 +413,7 @@ void CSMFReadMap::CreateDetailTex()
 		detailTexBM.AllocDummy({127, 127, 127, 0});
 	}
 
-	detailTex.SetRawTexID(detailTexBM.CreateMipMapTexture(texAnisotropyLevels[false], 0.0f, 0));
-	detailTex.SetRawSize(int2(detailTexBM.xsize, detailTexBM.ysize));
+	UploadMapTexture(detailTexBM, detailTex, texAnisotropyLevels[false], true);
 }
 
 
@@ -362,6 +422,30 @@ void CSMFReadMap::CreateShadingTex()
 	RECOIL_DETAILED_TRACY_ZONE;
 	// +1 to accomodate two FBO attachments of same size, not fully correct
 	shadingTex.SetRawSize(int2(mapDims.mapxp1, mapDims.mapyp1));
+
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		std::vector<uint8_t> pixels(
+			static_cast<std::size_t>(mapDims.mapxp1) * mapDims.mapyp1 * 4,
+			0
+		);
+		for (std::size_t i = 3; i < pixels.size(); i += 4)
+			pixels[i] = 255;
+
+		const auto texture = globalRendering->CreateVulkanTexture(
+			pixels.data(),
+			pixels.size(),
+			mapDims.mapxp1,
+			mapDims.mapyp1,
+			Vulkan::TextureFormat::Rgba8Unorm
+		);
+		if (!texture.has_value())
+			throw content_error("Failed creating the Vulkan SMF shading texture");
+
+		shadingTex.SetRawVulkanTexID(texture.value());
+		return;
+	}
+#endif
 
 	// the shading/normal texture buffers must have PO2 dimensions
 	// (excess elements that no vertices map into are left unused)
@@ -387,6 +471,27 @@ void CSMFReadMap::CreateNormalTex()
 	RECOIL_DETAILED_TRACY_ZONE;
 	normalsTex.SetRawSize(int2(mapDims.mapxp1, mapDims.mapyp1));
 
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		std::vector<float> pixels(
+			static_cast<std::size_t>(mapDims.mapxp1) * mapDims.mapyp1 * 2,
+			0.0f
+		);
+		const auto texture = globalRendering->CreateVulkanTexture(
+			pixels.data(),
+			pixels.size() * sizeof(float),
+			mapDims.mapxp1,
+			mapDims.mapyp1,
+			Vulkan::TextureFormat::Rg32Float
+		);
+		if (!texture.has_value())
+			throw content_error("Failed creating the Vulkan SMF normal texture");
+
+		normalsTex.SetRawVulkanTexID(texture.value());
+		return;
+	}
+#endif
+
 	glGenTextures(1, normalsTex.GetIDPtr());
 	glBindTexture(GL_TEXTURE_2D, normalsTex.GetID());
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -402,6 +507,25 @@ void CSMFReadMap::CreateNormalTex()
 
 void CSMFReadMap::CreateHeightMapTex()
 {
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		const std::size_t pixelCount = static_cast<std::size_t>(mapDims.mapxp1) * mapDims.mapyp1;
+		const auto texture = globalRendering->CreateVulkanTexture(
+			GetCornerHeightMapUnsynced(),
+			pixelCount * sizeof(float),
+			mapDims.mapxp1,
+			mapDims.mapyp1,
+			Vulkan::TextureFormat::R32Float
+		);
+		if (!texture.has_value())
+			throw content_error("Failed creating the Vulkan SMF height texture");
+
+		heightMapTexture.SetRawVulkanTexID(texture.value());
+		heightMapTexture.SetRawSize(int2(mapDims.mapxp1, mapDims.mapyp1));
+		return;
+	}
+#endif
+
 	glGenTextures(1, heightMapTexture.GetIDPtr());
 	glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
 
@@ -427,6 +551,11 @@ void CSMFReadMap::CreateHeightMapTex()
 
 void CSMFReadMap::CreateShadingGL()
 {
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan())
+		return;
+#endif
+
 	shadingFBO = std::make_unique<FBO>(false);
 
 	shadingFBO->Bind();
@@ -519,6 +648,23 @@ void CSMFReadMap::UpdateCornerHeightMapUnsynced(const SRectangle& update)
 
 void CSMFReadMap::UpdateHeightMapTexture(const SRectangle& update)
 {
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		const std::size_t pixelCount = static_cast<std::size_t>(mapDims.mapxp1) * mapDims.mapyp1;
+		if (!globalRendering->UpdateVulkanTexture(
+			heightMapTexture.GetID(),
+			GetCornerHeightMapUnsynced(),
+			pixelCount * sizeof(float),
+			mapDims.mapxp1,
+			mapDims.mapyp1,
+			Vulkan::TextureFormat::R32Float
+		)) {
+			throw content_error("Failed updating the Vulkan SMF height texture");
+		}
+		return;
+	}
+#endif
+
 	// consider full update if the area of update is >= 50% of full update
 	const auto refFullUpdateThreshold = (mapDims.mapx * mapDims.mapy) >> 1;
 	if (update.GetArea() >= refFullUpdateThreshold) {
@@ -705,6 +851,57 @@ void CSMFReadMap::UpdateShadingTexture()
 void CSMFReadMap::UpdateVisNormalsAndShadingTexture(const SRectangle& update)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		const float4& lightDirection = ISky::GetSky()->GetLight()->GetLightDir();
+		const Vulkan::MapShadingParameters parameters = {
+			{
+				sunLighting->groundAmbientColor.x,
+				sunLighting->groundAmbientColor.y,
+				sunLighting->groundAmbientColor.z,
+			},
+			{
+				sunLighting->groundDiffuseColor.x,
+				sunLighting->groundDiffuseColor.y,
+				sunLighting->groundDiffuseColor.z,
+			},
+			{lightDirection.x, lightDirection.y, lightDirection.z},
+			{waterRendering->baseColor.x, waterRendering->baseColor.y, waterRendering->baseColor.z},
+			{waterRendering->absorb.x, waterRendering->absorb.y, waterRendering->absorb.z},
+			{waterRendering->minColor.x, waterRendering->minColor.y, waterRendering->minColor.z},
+			CGround::GetWaterPlaneLevel(),
+		};
+		const std::size_t pixelCount = static_cast<std::size_t>(mapDims.mapxp1) * mapDims.mapyp1;
+		const auto textures = Vulkan::BuildMapShadingTextures(
+			std::span<const float>(GetCornerHeightMapUnsynced(), pixelCount),
+			mapDims.mapxp1,
+			mapDims.mapyp1,
+			parameters
+		);
+
+		const bool shadingUpdated = globalRendering->UpdateVulkanTexture(
+			shadingTex.GetID(),
+			textures.shading.data(),
+			textures.shading.size(),
+			mapDims.mapxp1,
+			mapDims.mapyp1,
+			Vulkan::TextureFormat::Rgba8Unorm
+		);
+		const bool normalsUpdated = globalRendering->UpdateVulkanTexture(
+			normalsTex.GetID(),
+			textures.normals.data(),
+			textures.normals.size() * sizeof(float),
+			mapDims.mapxp1,
+			mapDims.mapyp1,
+			Vulkan::TextureFormat::Rg32Float
+		);
+		if (!shadingUpdated || !normalsUpdated)
+			throw content_error("Failed updating the Vulkan SMF shading textures");
+
+		return;
+	}
+#endif
 
 #ifndef HEADLESS
 	assert(shadingFBO->IsValid() && shadingShader->IsValid());
@@ -1031,4 +1228,3 @@ void CSMFReadMap::KillGroundDrawer() { spring::SafeDelete(groundDrawer); }
 
 // not placed in header since type CSMFGroundDrawer is only forward-declared there
 inline CBaseGroundDrawer* CSMFReadMap::GetGroundDrawer() { return groundDrawer; }
-

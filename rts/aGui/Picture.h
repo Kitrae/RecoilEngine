@@ -1,8 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef PICTURE_H
-#define PICTURE_H
+#pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "GuiElement.h"
@@ -21,10 +21,9 @@ public:
 private:
 	virtual void DrawSelf();
 	
-	unsigned texture;
+	uint32_t texture;
+	bool vulkanTexture;
 	std::string file;
 };
 
 }
-
-#endif

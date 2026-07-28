@@ -5,7 +5,11 @@
 
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/Shaders/Shader.h"
+#if defined(RECOIL_VULKAN)
+#include "Rendering/Vulkan/VulkanGuiRenderer.h"
+#endif
 
 namespace agui
 {
@@ -136,6 +140,37 @@ void GuiElement::DrawBox(int primType, const SColor& color) {}
 #else
 void GuiElement::DrawBox(int primType, const SColor& color)
 {
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		switch (primType) {
+			case GL_QUADS: {
+				Vulkan::DrawGuiQuad(
+					*globalRendering,
+					pos[0],
+					pos[1],
+					pos[0] + size[0],
+					pos[1] + size[1],
+					color
+				);
+			} break;
+			case GL_LINE_LOOP: {
+				Vulkan::DrawGuiOutline(
+					*globalRendering,
+					pos[0],
+					pos[1],
+					pos[0] + size[0],
+					pos[1] + size[1],
+					color
+				);
+			} break;
+			default: {
+				assert(false);
+			} break;
+		}
+		return;
+	}
+#endif
+
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DC>();
 	auto& sh = rb.GetShader();
 

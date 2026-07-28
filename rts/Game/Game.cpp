@@ -865,6 +865,9 @@ void CGame::LoadLua(bool dryRun, bool onlyUnsynced)
 		loadscreen->SetLoadMessage("Loading " + prefix + names[i]);
 
 		if (onlyUnsynced && handles[i] != nullptr) {
+			if (globalRendering->IsVulkan() && handles[i] == luaRules)
+				continue;
+
 			handles[i]->InitUnsynced();
 		} else {
 			loaders[i](dryRun);
@@ -873,7 +876,7 @@ void CGame::LoadLua(bool dryRun, bool onlyUnsynced)
 
 	LEAVE_SYNCED_CODE();
 
-	if (!dryRun) {
+	if (!dryRun && !globalRendering->IsVulkan()) {
 		loadscreen->SetLoadMessage("Loading LuaUI");
 		auto lock = CLoadLock::GetUniqueLock();
 		CLuaUI::LoadFreeHandler();
@@ -1435,6 +1438,13 @@ bool CGame::Draw() {
 
 	if (UpdateUnsynced(currentTimePreUpdate))
 		return false;
+
+	if (globalRendering->IsVulkan()) {
+		worldDrawer.DrawVulkan();
+		SetDrawMode(gameNotDrawing);
+		lastDrawFrameTime = spring_gettime();
+		return true;
+	}
 
 	RmlGui::Update();
 	const spring_time currentTimePreDraw = spring_gettime();
@@ -2208,4 +2218,3 @@ const ActionList& CGame::GetLastActionList()
 {
 	return gameInputReceiver.lastActionList;
 }
-

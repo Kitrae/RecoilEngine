@@ -163,6 +163,7 @@ namespace Vulkan
 			graphicsQueueFamily = queueFamilies.graphics.value();
 			presentQueueFamily = queueFamilies.present.value();
 			deviceName = properties.deviceName;
+			maxTextureSize = properties.limits.maxImageDimension2D;
 		}
 
 		if (physicalDevice == VK_NULL_HANDLE)

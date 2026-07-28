@@ -2,6 +2,7 @@
 
 #include "VerticalLayout.h"
 
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
 
 namespace agui
@@ -18,7 +19,8 @@ void VerticalLayout::DrawSelf()
 {
 	if (borderWidth > 0)
 	{
-		glLineWidth(borderWidth);
+		if (!globalRendering->IsVulkan())
+			glLineWidth(borderWidth);
 		DrawBox(GL_LINE_LOOP, {1.f, 1.f, 1.f, Opacity()});
 	}
 }

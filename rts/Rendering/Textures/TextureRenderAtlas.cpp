@@ -98,7 +98,7 @@ CTextureRenderAtlas::CTextureRenderAtlas(
 	atlasAllocator->SetMaxSize(atlasSizeX, atlasSizeY);
 	atlasAllocator->SetMaxTexLevel(maxLevels);
 
-	if (shaderRef == 0) {
+	if (!globalRendering->IsVulkan() && shaderRef == 0) {
 		shader = shaderHandler->CreateProgramObject("[TextureRenderAtlas]", "TextureRenderAtlas");
 		shader->AttachShaderObject(shaderHandler->CreateShaderObject(vsTRA, "", GL_VERTEX_SHADER));
 		shader->AttachShaderObject(shaderHandler->CreateShaderObject(fsTRA, "", GL_FRAGMENT_SHADER));
@@ -114,21 +114,30 @@ CTextureRenderAtlas::CTextureRenderAtlas(
 		shader->Validate();
 	}
 
-	shaderRef++;
+	if (!globalRendering->IsVulkan())
+		shaderRef++;
 }
 
 CTextureRenderAtlas::~CTextureRenderAtlas()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	shaderRef--;
 
-	if (shaderRef == 0)
-		shaderHandler->ReleaseProgramObjects("[TextureRenderAtlas]");
+	if (globalRendering->IsVulkan()) {
+		if (vulkanTexture != std::numeric_limits<uint32_t>::max())
+			globalRendering->DestroyVulkanTexture(vulkanTexture);
+	} else {
+		shaderRef--;
 
-	for (auto& [_, entry] : filenameToTexID) {
-		if (entry.texID) {
-			glDeleteTextures(1, &entry.texID);
-			entry.texID = 0;
+		if (shaderRef == 0)
+			shaderHandler->ReleaseProgramObjects("[TextureRenderAtlas]");
+	}
+
+	if (!globalRendering->IsVulkan()) {
+		for (auto& [_, entry] : filenameToTexID) {
+			if (entry.texID) {
+				glDeleteTextures(1, &entry.texID);
+				entry.texID = 0;
+			}
 		}
 	}
 
@@ -186,7 +195,40 @@ bool CTextureRenderAtlas::AddTexFromBitmapRaw(const std::string& name, const CBi
 	if (it == filenameToTexID.end()) {
 		// Assign stable index at insertion time so all icons sharing a file get the same index
 		const uint32_t stableIdx = static_cast<uint32_t>(filenameToTexID.size());
-		it = filenameToTexID.emplace(refFileName, FileTexEntry{ bm.CreateMipMapTexture(), stableIdx }).first;
+		FileTexEntry fileEntry = {
+			.texID = 0,
+			.stableIdx = stableIdx,
+			.size = int2(bm.xsize, bm.ysize),
+		};
+
+		if (globalRendering->IsVulkan()) {
+			if (
+				bm.compressed ||
+				bm.Empty() ||
+				bm.channels < 1 ||
+				bm.channels > 4 ||
+				bm.GetDataTypeSize() != 1
+			) {
+				return false;
+			}
+
+			fileEntry.pixels.resize(static_cast<size_t>(bm.xsize) * bm.ysize * 4);
+			const uint8_t* srcPixels = bm.GetRawMem();
+
+			for (size_t pixelIdx = 0; pixelIdx < static_cast<size_t>(bm.xsize) * bm.ysize; ++pixelIdx) {
+				const uint8_t* src = srcPixels + pixelIdx * bm.channels;
+				uint8_t* dst = fileEntry.pixels.data() + pixelIdx * 4;
+
+				dst[0] = src[0];
+				dst[1] = (bm.channels >= 3) ? src[1] : src[0];
+				dst[2] = (bm.channels >= 3) ? src[2] : src[0];
+				dst[3] = (bm.channels == 2) ? src[1] : ((bm.channels == 4) ? src[3] : 255);
+			}
+		} else {
+			fileEntry.texID = bm.CreateMipMapTexture();
+		}
+
+		it = filenameToTexID.emplace(refFileName, std::move(fileEntry)).first;
 	}
 
 	const auto uniqueSubTex = UniqueSubTexture(
@@ -277,6 +319,9 @@ uint32_t CTextureRenderAtlas::GetTexID() const
 	if (!atlasRendered)
 		return 0;
 
+	if (globalRendering->IsVulkan())
+		return vulkanTexture;
+
 	return atlasTex->GetId();
 }
 
@@ -308,6 +353,9 @@ uint32_t CTextureRenderAtlas::DisownTexture()
 	if (!atlasRendered)
 		return 0;
 
+	if (globalRendering->IsVulkan())
+		return std::exchange(vulkanTexture, std::numeric_limits<uint32_t>::max());
+
 	return atlasTex->DisOwn();
 }
 
@@ -319,6 +367,10 @@ bool CTextureRenderAtlas::DumpTexture(const std::string& fileExt) const
 		LOG_L(L_ERROR, "[CTextureRenderAtlas::%s] Can't dump invalid %s atlas", __func__, atlasName.c_str());
 		return false;
 	}
+
+	if (globalRendering->IsVulkan())
+		return false;
+
 	const auto numLevels = atlasAllocator->GetNumTexLevels();
 	const auto numPages = atlasAllocator->GetNumPages();
 
@@ -355,6 +407,85 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 
 	if (atlasRendered)
 		return true;
+
+	if (globalRendering->IsVulkan()) {
+		const auto numPages = atlasAllocator->GetNumPages();
+		const auto& atlasSize = atlasAllocator->GetAtlasSize();
+
+		if (numPages != 1 || atlasSize.x == 0 || atlasSize.y == 0)
+			return false;
+
+		std::vector<const FileTexEntry*> sourceTextures(filenameToTexID.size(), nullptr);
+		for (const auto& [_, entry] : filenameToTexID)
+			sourceTextures[entry.stableIdx] = &entry;
+
+		std::vector<uint8_t> atlasPixels(static_cast<size_t>(atlasSize.x) * atlasSize.y * 4, 0);
+		const int halfPad = atlasAllocator->GetPadding() / 2;
+
+		for (const auto& [uniqueName, entry] : atlasAllocator->GetEntries()) {
+			const auto uniqueIt = uniqueSubTextureMap.find(uniqueName);
+			if (uniqueIt == uniqueSubTextureMap.end())
+				continue;
+
+			const auto& uniqueTexture = uniqueIt->second;
+			if (uniqueTexture.stableIdx >= sourceTextures.size())
+				continue;
+
+			const FileTexEntry* source = sourceTextures[uniqueTexture.stableIdx];
+			if (source == nullptr || source->pixels.empty())
+				continue;
+
+			const int dstX1 = static_cast<int>(entry.texCoords.x1);
+			const int dstY1 = static_cast<int>(entry.texCoords.y1);
+			const int dstX2 = static_cast<int>(entry.texCoords.x2);
+			const int dstY2 = static_cast<int>(entry.texCoords.y2);
+			const int dstWidth = dstX2 - dstX1 + 1;
+			const int dstHeight = dstY2 - dstY1 + 1;
+
+			for (int y = std::max(dstY1 - halfPad, 0); y <= std::min(dstY2 + halfPad, static_cast<int>(atlasSize.y) - 1); ++y) {
+				const float v = uniqueTexture.subTexCoords.y +
+					(static_cast<float>(y - dstY1) + 0.5f) / dstHeight *
+					(uniqueTexture.subTexCoords.w - uniqueTexture.subTexCoords.y);
+				const int srcY = std::clamp(
+					static_cast<int>(v * source->size.y),
+					0,
+					source->size.y - 1
+				);
+
+				for (int x = std::max(dstX1 - halfPad, 0); x <= std::min(dstX2 + halfPad, static_cast<int>(atlasSize.x) - 1); ++x) {
+					const float u = uniqueTexture.subTexCoords.x +
+						(static_cast<float>(x - dstX1) + 0.5f) / dstWidth *
+						(uniqueTexture.subTexCoords.z - uniqueTexture.subTexCoords.x);
+					const int srcX = std::clamp(
+						static_cast<int>(u * source->size.x),
+						0,
+						source->size.x - 1
+					);
+
+					const size_t srcOffset = (static_cast<size_t>(srcY) * source->size.x + srcX) * 4;
+					const size_t dstOffset = (static_cast<size_t>(y) * atlasSize.x + x) * 4;
+					std::copy_n(source->pixels.data() + srcOffset, 4, atlasPixels.data() + dstOffset);
+				}
+			}
+		}
+
+		const auto texture = globalRendering->CreateVulkanTextureRGBA8(
+			atlasPixels.data(),
+			atlasSize.x,
+			atlasSize.y
+		);
+		if (!texture.has_value())
+			return false;
+
+		vulkanTexture = *texture;
+		atlasRendered = true;
+
+		for (auto& [_, entry] : filenameToTexID)
+			entry.pixels.clear();
+
+		LOG_L(L_INFO, "CTextureRenderAtlas::%s() created Vulkan atlas=%s size=%ux%u", __func__, atlasName.c_str(), atlasSize.x, atlasSize.y);
+		return true;
+	}
 
 	LOG_L(L_INFO, "CTextureRenderAtlas::%s()[0] atlas=%s FBO::ready=%d", __func__, atlasName.c_str(), FBO::IsReady());
 

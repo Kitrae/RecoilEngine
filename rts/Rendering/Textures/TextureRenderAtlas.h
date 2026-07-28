@@ -1,9 +1,13 @@
+/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <tuple>
+#include <vector>
 
 #include "TextureAtlas.h"
 #include "IAtlasAllocator.h"
@@ -76,6 +80,8 @@ private:
 	struct FileTexEntry {
 		uint32_t texID;
 		uint32_t stableIdx;
+		int2 size;
+		std::vector<uint8_t> pixels;
 	};
 	spring::unordered_map<std::string, FileTexEntry> filenameToTexID;
 	spring::unordered_map<std::string, UniqueSubTexture> uniqueSubTextureMap;
@@ -86,6 +92,7 @@ private:
 
 	std::unique_ptr<GL::TextureBase> atlasTex;
 	std::unique_ptr<IAtlasAllocator> atlasAllocator;
+	uint32_t vulkanTexture = std::numeric_limits<uint32_t>::max();
 
 	std::string atlasName;
 	static inline size_t shaderRef = 0;

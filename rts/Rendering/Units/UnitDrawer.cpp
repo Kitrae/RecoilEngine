@@ -12,6 +12,7 @@
 #include "Game/UI/MiniMap.h"
 #include "Map/MapInfo.h"
 #include "Map/ReadMap.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/Env/IWater.h"
 #include "Rendering/GL/SubState.h"
 #include "Rendering/GL/glExtra.h"
@@ -139,6 +140,9 @@ void CUnitDrawer::InitStatic()
 
 	SelectImplementation();
 
+	if (globalRendering->IsVulkan())
+		return;
+
 	{
 		icons2DShader = shaderHandler->CreateProgramObject("[Icons]", "2D");
 		icons2DShader->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/Icons2DVS.glsl", "", GL_VERTEX_SHADER));
@@ -170,6 +174,12 @@ void CUnitDrawer::InitStatic()
 void CUnitDrawer::KillStatic(bool reload)
 {
 	CModelDrawerBase<CUnitDrawerData, CUnitDrawer>::KillStatic(reload);
+
+	if (globalRendering->IsVulkan()) {
+		icons2DShader = nullptr;
+		icons3DShader = nullptr;
+		return;
+	}
 
 	shaderHandler->ReleaseProgramObjects("[Icons]");
 	icons2DShader = nullptr;
@@ -2085,4 +2095,3 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 
 	glPopAttrib();
 }
-

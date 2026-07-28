@@ -223,6 +223,9 @@ bool CTextureAtlas::CreateTexture()
 		}
 	}
 
+	if (globalRendering->IsVulkan())
+		return true;
+
 	GL::TextureCreationParams tcp {
 		//make function re-entrant
 		.texID = atlasTex ? atlasTex->GetId() : 0,
@@ -255,7 +258,7 @@ bool CTextureAtlas::CreateTexture()
 
 void CTextureAtlas::BindTexture()
 {
-	if (!initialized)
+	if (!initialized || atlasTex == nullptr)
 		return;
 
 	atlasTex->Bind();
@@ -263,7 +266,7 @@ void CTextureAtlas::BindTexture()
 
 void CTextureAtlas::UnbindTexture()
 {
-	if (!initialized)
+	if (!initialized || atlasTex == nullptr)
 		return;
 
 	atlasTex->Unbind();
@@ -388,4 +391,3 @@ int2 CTextureAtlas::GetSize() const {
 	RECOIL_DETAILED_TRACY_ZONE;
 	return (atlasAllocator->GetAtlasSize());
 }
-

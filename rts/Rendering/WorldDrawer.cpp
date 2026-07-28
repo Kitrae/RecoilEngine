@@ -51,6 +51,9 @@
 #include "System/Log/ILog.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/LoadLock.h"
+#if defined(RECOIL_VULKAN)
+#include "Rendering/Vulkan/VulkanTerrain.h"
+#endif
 
 CONFIG(bool, PreloadModels).defaultValue(true).description("The engine will preload all models");
 
@@ -112,7 +115,14 @@ void CWorldDrawer::InitPost() const
 	}
 	try {
 		loadscreen->SetLoadMessage("Creating GroundDrawer");
-		readMap->InitGroundDrawer();
+		if (!globalRendering->IsVulkan()) {
+			readMap->InitGroundDrawer();
+		}
+#if defined(RECOIL_VULKAN)
+		else if (!Vulkan::InitializeTerrain(*globalRendering, *readMap)) {
+			throw content_error("Failed creating Vulkan terrain");
+		}
+#endif
 	} catch (const content_error& e) {
 		memset(buf, 0, sizeof(buf));
 		snprintf(buf, sizeof(buf), "[WorldDrawer::%s] caught exception \"%s\"", __func__, e.what());
@@ -123,8 +133,13 @@ void CWorldDrawer::InitPost() const
 		grassDrawer = new CGrassDrawer();
 	}
 	{
-		inMapDrawerView = new CInMapDrawView();
-		pathDrawer = IPathDrawer::GetInstance();
+		if (globalRendering->IsVulkan()) {
+			inMapDrawerView = nullptr;
+			pathDrawer = new IPathDrawer();
+		} else {
+			inMapDrawerView = new CInMapDrawView();
+			pathDrawer = IPathDrawer::GetInstance();
+		}
 	}
 	{
 		DepthBufferCopy::Init();
@@ -150,7 +165,8 @@ void CWorldDrawer::InitPost() const
 		IWater::SetWater(-1);
 	}
 	{
-		ISky::GetSky()->SetupFog();
+		if (!globalRendering->IsVulkan())
+			ISky::GetSky()->SetupFog();
 	}
 	lock = {}; //unlock
 	{
@@ -172,6 +188,11 @@ void CWorldDrawer::InitPost() const
 
 void CWorldDrawer::Kill()
 {
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan())
+		Vulkan::KillTerrain(*globalRendering);
+#endif
+
 	infoTextureHandler = nullptr;
 
 	IWater::KillWater();
@@ -206,6 +227,14 @@ void CWorldDrawer::Kill()
 void CWorldDrawer::Update(bool newSimFrame)
 {
 	SCOPED_TIMER("Update::WorldDrawer");
+
+	if (globalRendering->IsVulkan()) {
+		if (newSimFrame)
+			modelLoader.LogErrors();
+
+		numUpdates += 1;
+		return;
+	}
 
 	LuaObjectDrawer::Update(numUpdates == 0);
 	readMap->UpdateDraw(numUpdates == 0);
@@ -244,6 +273,8 @@ void CWorldDrawer::Update(bool newSimFrame)
 
 void CWorldDrawer::GenerateIBLTextures() const
 {
+	if (globalRendering->IsVulkan())
+		return;
 
 	if (shadowHandler.ShadowsLoaded()) {
 		SCOPED_TIMER("Draw::World::CreateShadows");
@@ -282,6 +313,9 @@ void CWorldDrawer::GenerateIBLTextures() const
 
 void CWorldDrawer::ResetMVPMatrices() const
 {
+	if (globalRendering->IsVulkan())
+		return;
+
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	gluOrtho2D(0, 1, 0, 1);
@@ -299,6 +333,9 @@ void CWorldDrawer::Draw() const
 {
 	SCOPED_TIMER("Draw::World");
 	SCOPED_GL_DEBUGGROUP("Draw::World");
+
+	if (globalRendering->IsVulkan())
+		return;
 
 	const auto& sky = ISky::GetSky();
 	glClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 0.0f);
@@ -324,6 +361,14 @@ void CWorldDrawer::Draw() const
 	DrawBelowWaterOverlay();
 
 	glDisable(GL_FOG);
+}
+
+void CWorldDrawer::DrawVulkan() const
+{
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan() && globalRendering->drawGround)
+		Vulkan::DrawTerrain(*globalRendering, *camera);
+#endif
 }
 
 

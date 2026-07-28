@@ -10,6 +10,7 @@
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Textures/Bitmap.h"
+#include "Rendering/Vulkan/VulkanSkyTexture.h"
 #include "Rendering/Env/DebugCubeMapTexture.h"
 #include "Rendering/Env/WaterRendering.h"
 #include "Game/Game.h"
@@ -40,6 +41,12 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 	RECOIL_DETAILED_TRACY_ZONE;
 	shader = nullptr;
 #ifndef HEADLESS
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		LOG_L(L_WARNING, "runtime sky texture conversion is not implemented for Vulkan");
+		return;
+	}
+#endif
 	if (textureID == 0)
 		return;
 
@@ -208,8 +215,24 @@ CSkyBox::CSkyBox(const std::string& texture)
 #ifndef HEADLESS
 	if (!btex.Load(texture) || !(btex.textype == GL_TEXTURE_CUBE_MAP || btex.textype == GL_TEXTURE_2D)) {
 		LOG_L(L_WARNING, "could not load skybox texture from file %s", texture.c_str());
-		valid = false;
+		return;
 	}
+
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		const auto textureHandle = Vulkan::CreateSkyTexture(*globalRendering, btex);
+		if (!textureHandle.has_value()) {
+			LOG_L(L_WARNING, "could not upload skybox texture %s to Vulkan", texture.c_str());
+			return;
+		}
+
+		vulkanSkyTexture = textureHandle.value();
+		valid = true;
+		globalRendering->drawFog = (fogStart <= 0.99f);
+		return;
+	}
+#endif
+
 	Init(btex.CreateTexture(), btex.xsize, btex.ysize, btex.textype == GL_TEXTURE_2D);
 #else
 	Init(btex.CreateTexture(), btex.xsize, btex.ysize,                         false);
@@ -221,6 +244,12 @@ CSkyBox::~CSkyBox()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 #ifndef HEADLESS
+#if defined(RECOIL_VULKAN)
+	if (vulkanSkyTexture != UINT32_MAX) {
+		globalRendering->DestroyVulkanTexture(vulkanSkyTexture);
+		vulkanSkyTexture = UINT32_MAX;
+	}
+#endif
 	if (shader)
 		shaderHandler->ReleaseProgramObject("[SkyBox]", "SkyBox");
 #endif
@@ -235,6 +264,11 @@ void CSkyBox::Draw()
 
 	if (!valid)
 		return;
+
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan())
+		return;
+#endif
 
 	glDisable(GL_ALPHA_TEST);
 	glDisable(GL_BLEND);

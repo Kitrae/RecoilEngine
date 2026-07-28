@@ -112,6 +112,11 @@ CMiniMap::CMiniMap()
 
 	UpdateGeometry();
 
+	if (globalRendering->IsVulkan()) {
+		renderToTexture = false;
+		return;
+	}
+
 	const float isx = mapDims.mapx / float(mapDims.pwr2mapx);
 	const float isy = mapDims.mapy / float(mapDims.pwr2mapy);
 
@@ -178,6 +183,11 @@ CMiniMap::CMiniMap()
 CMiniMap::~CMiniMap()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan()) {
+		configHandler->RemoveObserver(this);
+		return;
+	}
+
 	shaderHandler->ReleaseProgramObjects("[MiniMap]");
 
 	glDeleteTextures(1, &buttonsTextureID);
@@ -2065,4 +2075,3 @@ void CMiniMap::SetClipPlanes(const bool lua) const
 
 
 /******************************************************************************/
-

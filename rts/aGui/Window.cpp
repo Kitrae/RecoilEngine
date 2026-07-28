@@ -4,7 +4,11 @@
 
 #include "Rendering/GL/myGL.h"
 #include "Rendering/Fonts/glFont.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/RenderBuffers.h"
+#if defined(RECOIL_VULKAN)
+#include "Rendering/Vulkan/VulkanGuiRenderer.h"
+#endif
 
 namespace agui
 {
@@ -36,21 +40,36 @@ void Window::DrawSelf()
 
 	DrawBox(GL_QUADS, { 0.0f,0.0f,0.0f, opacity });
 
-	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DC>();
-	auto& sh = rb.GetShader();
-
 	const SColor color = { 0.7f,0.7f,0.7f, opacity };
-	rb.AddQuadTriangles(
-		{ pos[0]          , pos[1] + size[1] - titleHeight, color },
-		{ pos[0]          , pos[1] + size[1]              , color },
-		{ pos[0] + size[0], pos[1] + size[1]              , color },
-		{ pos[0] + size[0], pos[1] + size[1] - titleHeight, color }
-	);
-	sh.Enable();
-	rb.DrawElements(GL_TRIANGLES);
-	sh.Disable();
+#if defined(RECOIL_VULKAN)
+	if (globalRendering->IsVulkan()) {
+		Vulkan::DrawGuiQuad(
+			*globalRendering,
+			pos[0],
+			pos[1] + size[1] - titleHeight,
+			pos[0] + size[0],
+			pos[1] + size[1],
+			color
+		);
+	} else
+#endif
+	{
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DC>();
+		auto& sh = rb.GetShader();
 
-	glLineWidth(2.0f);
+		rb.AddQuadTriangles(
+			{ pos[0]          , pos[1] + size[1] - titleHeight, color },
+			{ pos[0]          , pos[1] + size[1]              , color },
+			{ pos[0] + size[0], pos[1] + size[1]              , color },
+			{ pos[0] + size[0], pos[1] + size[1] - titleHeight, color }
+		);
+		sh.Enable();
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
+	}
+
+	if (!globalRendering->IsVulkan())
+		glLineWidth(2.0f);
 	DrawBox(GL_LINE_LOOP, { 1.0f,1.0f,1.0f, opacity });
 
 	/*

@@ -590,6 +590,14 @@ bool CGlobalRendering::CreateWindowAndContext(const char* title)
 			return false;
 		}
 
+		maxTextureSize = static_cast<int>(vulkanContext->GetMaxTextureSize());
+		globalRenderingInfo.gpuName = vulkanContext->GetDeviceName().c_str();
+		globalRenderingInfo.gpuVendor = "Unknown";
+		globalRenderingInfo.glVersion = "unavailable (Vulkan)";
+		globalRenderingInfo.glVendor = "unavailable (Vulkan)";
+		globalRenderingInfo.glRenderer = "unavailable (Vulkan)";
+		globalRenderingInfo.glslVersion = "unavailable (Vulkan)";
+		globalRenderingInfo.gladVersion = "unavailable (Vulkan)";
 		LOG("[GR::%s] initialized Vulkan device \"%s\"", __func__, vulkanContext->GetDeviceName().c_str());
 
 		SDL_DisableScreenSaver();
@@ -776,6 +784,49 @@ bool CGlobalRendering::SetVulkanStartupTexture(const uint8_t* pixels, uint32_t w
 #endif
 }
 
+std::optional<uint32_t> CGlobalRendering::CreateVulkanTexture(
+	const void* pixels,
+	std::size_t size,
+	uint32_t width,
+	uint32_t height,
+	Vulkan::TextureFormat format
+) {
+#if defined(RECOIL_VULKAN)
+	if (IsVulkan() && vulkanContext != nullptr)
+		return vulkanContext->CreateTexture(pixels, size, width, height, format);
+#endif
+	return std::nullopt;
+}
+
+std::optional<uint32_t> CGlobalRendering::CreateVulkanCubemap(
+	const void* pixels,
+	std::size_t size,
+	uint32_t faceSize,
+	Vulkan::TextureFormat format
+) {
+#if defined(RECOIL_VULKAN)
+	if (IsVulkan() && vulkanContext != nullptr)
+		return vulkanContext->CreateCubemap(pixels, size, faceSize, format);
+#endif
+	return std::nullopt;
+}
+
+bool CGlobalRendering::UpdateVulkanTexture(
+	uint32_t handle,
+	const void* pixels,
+	std::size_t size,
+	uint32_t width,
+	uint32_t height,
+	Vulkan::TextureFormat format
+) {
+#if defined(RECOIL_VULKAN)
+	return IsVulkan() && vulkanContext != nullptr &&
+		vulkanContext->UpdateTexture(handle, pixels, size, width, height, format);
+#else
+	return false;
+#endif
+}
+
 std::optional<uint32_t> CGlobalRendering::CreateVulkanTextureRGBA8(const uint8_t* pixels, uint32_t width, uint32_t height)
 {
 #if defined(RECOIL_VULKAN)
@@ -796,6 +847,56 @@ bool CGlobalRendering::UpdateVulkanTextureRGBA8(
 #else
 	return false;
 #endif
+}
+
+bool CGlobalRendering::DestroyVulkanTexture(uint32_t handle)
+{
+#if defined(RECOIL_VULKAN)
+	return IsVulkan() && vulkanContext != nullptr && vulkanContext->DestroyTexture(handle);
+#else
+	return false;
+#endif
+}
+
+std::optional<uint32_t> CGlobalRendering::CreateVulkanBuffer(
+	const void* data,
+	std::size_t dataSize,
+	std::size_t capacity,
+	Vulkan::BufferType type
+) {
+#if defined(RECOIL_VULKAN)
+	if (IsVulkan() && vulkanContext != nullptr)
+		return vulkanContext->CreateDataBuffer(data, dataSize, capacity, type);
+#endif
+
+	return std::nullopt;
+}
+
+bool CGlobalRendering::UpdateVulkanBuffer(uint32_t handle, const void* data, std::size_t size, std::size_t offset)
+{
+#if defined(RECOIL_VULKAN)
+	return IsVulkan() && vulkanContext != nullptr && vulkanContext->UpdateDataBuffer(handle, data, size, offset);
+#else
+	return false;
+#endif
+}
+
+bool CGlobalRendering::DestroyVulkanBuffer(uint32_t handle)
+{
+#if defined(RECOIL_VULKAN)
+	return IsVulkan() && vulkanContext != nullptr && vulkanContext->DestroyDataBuffer(handle);
+#else
+	return false;
+#endif
+}
+
+uint32_t CGlobalRendering::GetVulkanSolidTexture() const
+{
+#if defined(RECOIL_VULKAN)
+	if (IsVulkan() && vulkanContext != nullptr)
+		return vulkanContext->GetSolidTexture();
+#endif
+	return UINT32_MAX;
 }
 
 uint32_t CGlobalRendering::GetVulkanStartupTexture() const
@@ -828,6 +929,45 @@ bool CGlobalRendering::AppendVulkanDrawBatch(
 	return IsVulkan() && vulkanContext != nullptr && vulkanContext->AppendDrawBatch(vertices, indices, ranges);
 #else
 	return false;
+#endif
+}
+
+bool CGlobalRendering::SetVulkanTerrain(
+	std::span<const Vulkan::TerrainVertex> vertices,
+	std::span<const uint32_t> indices,
+	const std::array<uint32_t, 3>& textures,
+	uint32_t instanceCount,
+	const std::array<uint32_t, 4>& terrainInfo
+) {
+#if defined(RECOIL_VULKAN)
+	return IsVulkan() && vulkanContext != nullptr &&
+		vulkanContext->SetTerrain(vertices, indices, textures, instanceCount, terrainInfo);
+#else
+	return false;
+#endif
+}
+
+void CGlobalRendering::SetVulkanTerrainTransform(const std::array<float, 16>& transform)
+{
+#if defined(RECOIL_VULKAN)
+	if (IsVulkan() && vulkanContext != nullptr)
+		vulkanContext->SetTerrainTransform(transform);
+#endif
+}
+
+void CGlobalRendering::ClearVulkanTerrain()
+{
+#if defined(RECOIL_VULKAN)
+	if (IsVulkan() && vulkanContext != nullptr)
+		vulkanContext->ClearTerrain();
+#endif
+}
+
+void CGlobalRendering::BeginVulkanFrame()
+{
+#if defined(RECOIL_VULKAN)
+	if (IsVulkan() && vulkanContext != nullptr)
+		vulkanContext->BeginFrame();
 #endif
 }
 

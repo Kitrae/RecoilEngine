@@ -1,6 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 #include "IGroundDecalDrawer.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/Env/Decals/GroundDecalHandler.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Exceptions.h"
@@ -25,6 +26,13 @@ CR_REG_METADATA(NullGroundDecalDrawer,  )
 void IGroundDecalDrawer::Init()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan()) {
+		FreeInstance();
+		hasDecals = false;
+		groundDecals = new NullGroundDecalDrawer();
+		return;
+	}
+
 	SetDrawDecals(configHandler->GetBool("GroundDecals"));
 }
 

@@ -38,12 +38,12 @@ void ShowSplashScreen(
 		if (!globalRendering->SetVulkanStartupTexture(bmp.GetRawMem(), bmp.xsize, bmp.ysize))
 			LOG_L(L_ERROR, "[ShowSplashScreen] Failed uploading the Vulkan startup texture");
 
-#if defined(RECOIL_VULKAN)
-		if (font != nullptr && !Vulkan::ConfigureStartupScreen(*globalRendering, *font, springVersionStr))
-			LOG_L(L_ERROR, "[ShowSplashScreen] Failed preparing the Vulkan startup text");
-#endif
-
 		while (!testDoneFunc()) {
+			globalRendering->BeginVulkanFrame();
+#if defined(RECOIL_VULKAN)
+			if (font != nullptr && !Vulkan::ConfigureStartupScreen(*globalRendering, *font, springVersionStr))
+				LOG_L(L_ERROR, "[ShowSplashScreen] Failed preparing the Vulkan startup text");
+#endif
 			globalRendering->SwapBuffers(true, false);
 
 			SDL_Event event;

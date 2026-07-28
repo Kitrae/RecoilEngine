@@ -8,6 +8,7 @@
 #include "LuaObjectRendering.h"
 #include "LuaCallInCheck.h"
 
+#include "Rendering/GlobalRendering.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitDef.h"
@@ -40,7 +41,7 @@ CLuaRules::CLuaRules(bool dryRun): CSplitLuaHandle("LuaRules", LUA_HANDLE_ORDER_
 	if (!IsValid())
 		return;
 
-	Init(dryRun);
+	Init(dryRun, globalRendering == nullptr || !globalRendering->IsVulkan());
 }
 
 CLuaRules::~CLuaRules()

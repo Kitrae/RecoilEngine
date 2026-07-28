@@ -4,6 +4,10 @@
 
 #include "Rendering/GL/myGL.h"
 #include "Rendering/Fonts/glFont.h"
+#include "Rendering/GlobalRendering.h"
+#if defined(RECOIL_VULKAN)
+#include "Rendering/Vulkan/VulkanGuiRenderer.h"
+#endif
 #include "System/Misc/SpringTime.h"
 
 
@@ -44,7 +48,8 @@ void LineEdit::DrawSelf()
 	const float opacity = Opacity();
 	DrawBox(GL_QUADS, { 1.0f, 1.0f, 1.0f, opacity });
 
-	glLineWidth(1.49f);
+	if (!globalRendering->IsVulkan())
+		glLineWidth(1.49f);
 	if (hasFocus) {
 		DrawBox(GL_LINE_LOOP, { 0.0f, 0.0f, 0.0f, opacity });
 	} else {
@@ -71,9 +76,23 @@ void LineEdit::DrawSelf()
 		float cw = font->GetSize() * font->GetCharacterWidth(c) /float(screensize[0]);
 		float csx = pos[0] + 0.01 + caretWidth;
 		float f = 0.5f * (1.0f + fastmath::sin(spring_now().toMilliSecsf() * 0.015f));
-		glColor4f(f, f, f, opacity);
-		glRectf(csx, textCenter + cursorHeight/2, csx + cw, textCenter - cursorHeight/2);
-		glColor4f(0.0f, 0.0f, 0.0f, 1.0f); // black
+#if defined(RECOIL_VULKAN)
+		if (globalRendering->IsVulkan()) {
+			Vulkan::DrawGuiQuad(
+				*globalRendering,
+				csx,
+				textCenter - cursorHeight / 2,
+				csx + cw,
+				textCenter + cursorHeight / 2,
+				{f, f, f, opacity}
+			);
+		} else
+#endif
+		{
+			glColor4f(f, f, f, opacity);
+			glRectf(csx, textCenter + cursorHeight/2, csx + cw, textCenter - cursorHeight/2);
+			glColor4f(0.0f, 0.0f, 0.0f, 1.0f); // black
+		}
 	}
 
 	font->SetTextColor(); //default

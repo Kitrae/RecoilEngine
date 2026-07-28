@@ -1,9 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef _LOAD_SCREEN_H
-#define _LOAD_SCREEN_H
+#pragma once
 
 #include <string>
+#include <vector>
 
 #include "GameController.h"
 #include "System/LoadSave/LoadSaveHandler.h"
@@ -48,6 +48,7 @@ private:
 	ILoadSaveHandler* saveFile;
 
 	std::vector< std::pair<std::string, bool> > loadMessages;
+	std::vector<std::string> nativeLoadMessages;
 
 	std::string mapFileName;
 	std::string modFileName;
@@ -63,6 +64,3 @@ private:
 
 
 #define loadscreen CLoadScreen::GetInstance()
-
-
-#endif // _LOAD_SCREEN_H

@@ -1,6 +1,7 @@
 #include "ModelDrawer.h"
 
 #include "Map/Ground.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/LightHandler.h"
 #include "System/Config/ConfigHandler.h"
 #include "Rendering/Env/CubeMapHandler.h"
@@ -16,6 +17,13 @@ void CModelDrawerConcept::InitStatic()
 
 	cubeMapHandler.Init();
 	wireFrameMode = false;
+
+	if (globalRendering->IsVulkan()) {
+		deferredAllowed = false;
+		geomBuffer = nullptr;
+		initialized = true;
+		return;
+	}
 
 	lightHandler.Init(2U, configHandler->GetInt("MaxDynamicModelLights"));
 
@@ -39,6 +47,11 @@ void CModelDrawerConcept::KillStatic(bool reload)
 
 	cubeMapHandler.Free();
 	geomBuffer = nullptr;
+
+	if (globalRendering->IsVulkan()) {
+		initialized = false;
+		return;
+	}
 
 	for (int t = ModelDrawerTypes::MODEL_DRAWER_GLSL; t < ModelDrawerTypes::MODEL_DRAWER_CNT; ++t) {
 		IModelDrawerState::KillInstance(t);

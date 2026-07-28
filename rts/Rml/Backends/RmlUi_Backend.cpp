@@ -126,6 +126,9 @@ bool RmlInitialized()
 
 bool RmlGui::Initialize()
 {
+	if (globalRendering->IsVulkan())
+		return false;
+
 	LOG_L(L_INFO, "[RmlUi::%s] Beginning RmlUi Initialization", __func__);
 	state = Rml::MakeUnique<BackendState>();
 
@@ -165,6 +168,9 @@ bool RmlGui::Initialize()
 
 bool RmlGui::InitializeLua(lua_State* lua_state)
 {
+	if (globalRendering->IsVulkan())
+		return false;
+
 	if (!RmlInitialized()) {
 		RmlGui::Initialize();
 	} else if (state->ls != nullptr) {

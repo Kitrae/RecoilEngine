@@ -45,6 +45,9 @@ bool CubeMapHandler::Init() {
 	mapSkyReflections = (!mapInfo->smf.skyReflectModTexName.empty());
 	generateMipMaps = configHandler->GetBool("CubeTexGenerateMipMaps");
 
+	if (globalRendering->IsVulkan())
+		return true;
+
 	{
 		glGenTextures(1, &specularTexID);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, specularTexID);
@@ -114,6 +117,9 @@ bool CubeMapHandler::Init() {
 
 void CubeMapHandler::Free() {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan())
+		return;
+
 	if (specularTexID != 0) {
 		glDeleteTextures(1, &specularTexID);
 		specularTexID = 0;
@@ -135,6 +141,8 @@ void CubeMapHandler::Free() {
 void CubeMapHandler::UpdateReflectionTexture()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan())
+		return;
 
 	// NOTE:
 	//   we unbind later in WorldDrawer::GenerateIBLTextures() to save render
@@ -248,6 +256,8 @@ void CubeMapHandler::CreateReflectionFace(unsigned int glFace, bool skyOnly)
 void CubeMapHandler::UpdateSpecularTexture()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan())
+		return;
 
 	glBindTexture(GL_TEXTURE_CUBE_MAP, specularTexID);
 
@@ -327,4 +337,3 @@ void CubeMapHandler::UpdateSpecularFace(
 
 	glTexSubImage2D(texType, 0, 0, y, size, 1, GL_RGBA, GL_UNSIGNED_BYTE, buf);
 }
-

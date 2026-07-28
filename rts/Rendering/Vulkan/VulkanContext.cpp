@@ -3,6 +3,7 @@
 #include "VulkanContext.h"
 
 #include <algorithm>
+#include <limits>
 #include <string>
 
 #include <SDL2/SDL.h>
@@ -43,10 +44,20 @@ namespace Vulkan
 			return false;
 		if (!CreateGraphicsPipeline())
 			return false;
+		if (!terrainRenderer.Initialize(device, physicalDevice, renderPass))
+			return Fail("Failed creating the Vulkan terrain pipeline");
+		if (!CreateDepthResources())
+			return false;
 		if (!CreateFramebuffers())
 			return false;
 		if (!CreateCommandPool())
 			return false;
+
+		constexpr uint8_t solidPixel[] = {255, 255, 255, 255};
+		const auto solidTextureHandle = CreateTextureRGBA8(solidPixel, 1, 1);
+		if (!solidTextureHandle.has_value())
+			return false;
+		solidTexture = solidTextureHandle.value();
 
 		constexpr uint8_t fallbackPixel[] = {0, 0, 0, 255};
 		if (!UploadTextureRGBA8(fallbackPixel, 1, 1))
@@ -71,7 +82,9 @@ namespace Vulkan
 
 		DestroySyncObjects();
 		DestroyTextures();
+		DestroyDataBuffers();
 		DestroyGeometryBuffers();
+		terrainRenderer.Shutdown();
 
 		if (device != VK_NULL_HANDLE && commandPool != VK_NULL_HANDLE)
 			vkDestroyCommandPool(device, commandPool, nullptr);
@@ -92,6 +105,7 @@ namespace Vulkan
 		graphicsQueue = VK_NULL_HANDLE;
 		presentQueue = VK_NULL_HANDLE;
 		physicalDevice = VK_NULL_HANDLE;
+		maxTextureSize = 0;
 
 		if (instance != VK_NULL_HANDLE && surface != VK_NULL_HANDLE)
 			vkDestroySurfaceKHR(instance, surface, nullptr);
@@ -108,16 +122,86 @@ namespace Vulkan
 		deviceName.clear();
 	}
 
+	bool Context::SetTerrain(
+		std::span<const TerrainVertex> vertices,
+		std::span<const uint32_t> indices,
+		const std::array<TextureHandle, 3>& terrainTextures_,
+		uint32_t instanceCount,
+		const std::array<uint32_t, 4>& terrainInfo
+	) {
+		const auto invalidTexture = std::find_if(
+			terrainTextures_.begin(),
+			terrainTextures_.end(),
+			[this](TextureHandle texture) {
+				return
+					texture >= textures.size() ||
+					textures[texture].imageView == VK_NULL_HANDLE ||
+					textures[texture].sampler == VK_NULL_HANDLE;
+			}
+		);
+		if (
+			invalidTexture != terrainTextures_.end() ||
+			vertices.empty() ||
+			indices.empty() ||
+			instanceCount == 0 ||
+			terrainInfo[0] == 0 ||
+			terrainInfo[1] == 0 ||
+			terrainInfo[2] == 0 ||
+			terrainInfo[3] == 0 ||
+			indices.size() > std::numeric_limits<uint32_t>::max()
+		) {
+			return Fail("Invalid Vulkan terrain mesh");
+		}
+
+		const auto invalidIndex = std::find_if(indices.begin(), indices.end(), [vertexCount = vertices.size()](uint32_t index) {
+			return index >= vertexCount;
+		});
+		if (invalidIndex != indices.end())
+			return Fail("A Vulkan terrain index is outside the vertex mesh");
+
+		if (vkDeviceWaitIdle(device) != VK_SUCCESS)
+			return Fail("Failed waiting for Vulkan before replacing terrain");
+		if (!terrainRenderer.SetMesh(vertices, indices))
+			return Fail("Failed uploading the Vulkan terrain mesh");
+
+		std::array<VkDescriptorImageInfo, 3> imageInfos{};
+		for (std::size_t index = 0; index < imageInfos.size(); ++index) {
+			imageInfos[index].sampler = textures[terrainTextures_[index]].sampler;
+			imageInfos[index].imageView = textures[terrainTextures_[index]].imageView;
+			imageInfos[index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		}
+		terrainRenderer.SetTextures(imageInfos);
+		terrainRenderer.SetDrawInfo(instanceCount, terrainInfo);
+		terrainTextures = terrainTextures_;
+		return true;
+	}
+
+	void Context::SetTerrainTransform(const std::array<float, 16>& transform)
+	{
+		terrainRenderer.SetTransform(transform);
+	}
+
+	void Context::ClearTerrain()
+	{
+		if (device != VK_NULL_HANDLE)
+			vkDeviceWaitIdle(device);
+
+		terrainRenderer.ClearMesh();
+		terrainTextures.fill(INVALID_TEXTURE_HANDLE);
+	}
+
 	bool Context::DrawFrame(const std::array<float, 4>& clearColor)
 	{
-		if (device == VK_NULL_HANDLE || swapchain == VK_NULL_HANDLE)
-			return Fail("Cannot draw without an initialized Vulkan swapchain");
+		if (device == VK_NULL_HANDLE)
+			return Fail("Cannot draw without an initialized Vulkan device");
 
 		int drawableWidth = 0;
 		int drawableHeight = 0;
 		SDL_Vulkan_GetDrawableSize(window, &drawableWidth, &drawableHeight);
 		if (drawableWidth == 0 || drawableHeight == 0)
 			return true;
+		if (swapchain == VK_NULL_HANDLE)
+			return RecreateSwapchain();
 
 		const auto frameFence = frameFences[currentFrame];
 		if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
@@ -268,16 +352,17 @@ namespace Vulkan
 		if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
 			return Fail("Failed beginning a Vulkan command buffer");
 
-		VkClearValue clearValue{};
-		std::copy(clearColor.begin(), clearColor.end(), clearValue.color.float32);
+		std::array<VkClearValue, 2> clearValues{};
+		std::copy(clearColor.begin(), clearColor.end(), clearValues[0].color.float32);
+		clearValues[1].depthStencil = {1.0f, 0};
 
 		VkRenderPassBeginInfo renderPassInfo{};
 		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 		renderPassInfo.renderPass = renderPass;
 		renderPassInfo.framebuffer = swapchainFramebuffers[imageIndex];
 		renderPassInfo.renderArea.extent = swapchainExtent;
-		renderPassInfo.clearValueCount = 1;
-		renderPassInfo.pClearValues = &clearValue;
+		renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+		renderPassInfo.pClearValues = clearValues.data();
 
 		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -291,6 +376,16 @@ namespace Vulkan
 		VkRect2D scissor{};
 		scissor.extent = swapchainExtent;
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+		const bool terrainTexturesValid = std::all_of(
+			terrainTextures.begin(),
+			terrainTextures.end(),
+			[this](TextureHandle texture) {
+				return texture < textures.size() && textures[texture].imageView != VK_NULL_HANDLE;
+			}
+		);
+		if (terrainTexturesValid)
+			terrainRenderer.Record(commandBuffer);
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 		const auto& geometry = frameGeometry[currentFrame];

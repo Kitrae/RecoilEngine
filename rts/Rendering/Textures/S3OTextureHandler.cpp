@@ -6,6 +6,7 @@
 
 #include "System/FileSystem/FileHandler.h"
 #include "System/FileSystem/SimpleParser.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/ShadowHandler.h"
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/Models/3DModel.hpp"
@@ -56,9 +57,12 @@ void CS3OTextureHandler::Init()
 void CS3OTextureHandler::Kill()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	for (S3OTexMat& texture: textures) {
-		glDeleteTextures(1, &(texture.tex1));
-		glDeleteTextures(1, &(texture.tex2));
+
+	if (!globalRendering->IsVulkan()) {
+		for (S3OTexMat& texture: textures) {
+			glDeleteTextures(1, &(texture.tex1));
+			glDeleteTextures(1, &(texture.tex2));
+		}
 	}
 
 	textures.clear();
@@ -225,4 +229,3 @@ unsigned int CS3OTextureHandler::InsertTextureMat(const S3DModel* model)
 
 	return texMat.num;
 }
-

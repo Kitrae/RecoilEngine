@@ -3,6 +3,7 @@
 #include <algorithm>
 #include "HorizontalLayout.h"
 
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
 
 namespace agui
@@ -20,7 +21,8 @@ void HorizontalLayout::DrawSelf()
 	if (borderWidth <= 0.0f)
 		return;
 
-	glLineWidth(borderWidth);
+	if (!globalRendering->IsVulkan())
+		glLineWidth(borderWidth);
 	DrawBox(GL_LINE_LOOP, { 1.0f, 1.0f, 1.0f, Opacity() });
 }
 #endif

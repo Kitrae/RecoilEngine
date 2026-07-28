@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <memory>
 #include <array>
@@ -24,7 +25,10 @@ namespace Vulkan
 {
 	class Context;
 	struct DrawRange;
+	struct TerrainVertex;
 	struct Vertex2D;
+	enum class BufferType : uint8_t;
+	enum class TextureFormat : uint8_t;
 }
 
 /**
@@ -56,8 +60,39 @@ public:
 	SDL_Window* GetWindow() { return sdlWindow; }
 	SDL_GLContext GetContext() { return glContext; }
 	bool IsVulkan() const { return useVulkan; }
+	std::optional<uint32_t> CreateVulkanTexture(
+		const void* pixels,
+		std::size_t size,
+		uint32_t width,
+		uint32_t height,
+		Vulkan::TextureFormat format
+	);
+	std::optional<uint32_t> CreateVulkanCubemap(
+		const void* pixels,
+		std::size_t size,
+		uint32_t faceSize,
+		Vulkan::TextureFormat format
+	);
+	bool UpdateVulkanTexture(
+		uint32_t handle,
+		const void* pixels,
+		std::size_t size,
+		uint32_t width,
+		uint32_t height,
+		Vulkan::TextureFormat format
+	);
 	std::optional<uint32_t> CreateVulkanTextureRGBA8(const uint8_t* pixels, uint32_t width, uint32_t height);
 	bool UpdateVulkanTextureRGBA8(uint32_t handle, const uint8_t* pixels, uint32_t width, uint32_t height);
+	bool DestroyVulkanTexture(uint32_t handle);
+	std::optional<uint32_t> CreateVulkanBuffer(
+		const void* data,
+		std::size_t dataSize,
+		std::size_t capacity,
+		Vulkan::BufferType type
+	);
+	bool UpdateVulkanBuffer(uint32_t handle, const void* data, std::size_t size, std::size_t offset);
+	bool DestroyVulkanBuffer(uint32_t handle);
+	uint32_t GetVulkanSolidTexture() const;
 	uint32_t GetVulkanStartupTexture() const;
 	bool SetVulkanDrawBatch(
 		std::span<const Vulkan::Vertex2D> vertices,
@@ -69,6 +104,16 @@ public:
 		std::span<const uint32_t> indices,
 		std::span<const Vulkan::DrawRange> ranges
 	);
+	bool SetVulkanTerrain(
+		std::span<const Vulkan::TerrainVertex> vertices,
+		std::span<const uint32_t> indices,
+		const std::array<uint32_t, 3>& textures,
+		uint32_t instanceCount,
+		const std::array<uint32_t, 4>& terrainInfo
+	);
+	void SetVulkanTerrainTransform(const std::array<float, 16>& transform);
+	void ClearVulkanTerrain();
+	void BeginVulkanFrame();
 	bool SetVulkanStartupTexture(const uint8_t* pixels, uint32_t width, uint32_t height);
 
 	void DestroyWindowAndContext();

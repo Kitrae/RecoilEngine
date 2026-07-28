@@ -1,7 +1,6 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef LUA_HANDLE_SYNCED
-#define LUA_HANDLE_SYNCED
+#pragma once
 
 #include <string>
 
@@ -226,7 +225,7 @@ class CSplitLuaHandle
 
 		std::string LoadFile(const std::string& filename, const std::string& modes) const;
 		bool InitSynced(bool dryRun);
-		bool Init(bool dryRun);
+		bool Init(bool dryRun, bool initUnsynced = true);
 		bool FreeUnsynced();
 		bool LoadUnsynced();
 
@@ -282,6 +281,3 @@ class CSplitLuaHandle
 		friend class CGameStateCollector;
 		static LuaRulesParams::Params gameParams;
 };
-
-
-#endif /* LUA_HANDLE_SYNCED */

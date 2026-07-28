@@ -99,6 +99,8 @@ if(ENABLE_VULKAN)
 	set(vulkanShaderBuildDir "${CMAKE_CURRENT_BINARY_DIR}/vulkan-shaders")
 	set(vulkanVertexShaderHeader "${vulkanShaderBuildDir}/Texture.vert.spv.h")
 	set(vulkanFragmentShaderHeader "${vulkanShaderBuildDir}/Texture.frag.spv.h")
+	set(vulkanTerrainVertexShaderHeader "${vulkanShaderBuildDir}/Terrain.vert.spv.h")
+	set(vulkanTerrainFragmentShaderHeader "${vulkanShaderBuildDir}/Terrain.frag.spv.h")
 
 	add_custom_command(
 		OUTPUT "${vulkanVertexShaderHeader}"
@@ -126,20 +128,57 @@ if(ENABLE_VULKAN)
 		DEPENDS "${vulkanShaderSourceDir}/Texture.frag"
 		VERBATIM
 	)
+	add_custom_command(
+		OUTPUT "${vulkanTerrainVertexShaderHeader}"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${vulkanShaderBuildDir}"
+		COMMAND "${VULKAN_GLSLANG_VALIDATOR}"
+			-V
+			--target-env vulkan1.1
+			-x
+			--vn RECOIL_VULKAN_TERRAIN_VERT_SPV
+			-o "${vulkanTerrainVertexShaderHeader}"
+			"${vulkanShaderSourceDir}/Terrain.vert"
+		DEPENDS "${vulkanShaderSourceDir}/Terrain.vert"
+		VERBATIM
+	)
+	add_custom_command(
+		OUTPUT "${vulkanTerrainFragmentShaderHeader}"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${vulkanShaderBuildDir}"
+		COMMAND "${VULKAN_GLSLANG_VALIDATOR}"
+			-V
+			--target-env vulkan1.1
+			-x
+			--vn RECOIL_VULKAN_TERRAIN_FRAG_SPV
+			-o "${vulkanTerrainFragmentShaderHeader}"
+			"${vulkanShaderSourceDir}/Terrain.frag"
+		DEPENDS "${vulkanShaderSourceDir}/Terrain.frag"
+		VERBATIM
+	)
 
 	target_sources(engine-legacy PRIVATE
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanBuffer.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanContext.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanDevice.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanDrawBatch.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanDdsTexture.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanFontRenderer.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanGuiRenderer.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanLoadingScreen.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanMapShading.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanMapTexture.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanPipeline.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanSkyTexture.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanStartupScreen.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanSwapchain.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanSmfTerrainTexture.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanTerrain.cpp"
+		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanTerrainRenderer.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanTextRenderer.cpp"
 		"${ENGINE_SRC_ROOT_DIR}/Rendering/Vulkan/VulkanTexture.cpp"
 		"${vulkanVertexShaderHeader}"
 		"${vulkanFragmentShaderHeader}"
+		"${vulkanTerrainVertexShaderHeader}"
+		"${vulkanTerrainFragmentShaderHeader}"
 	)
 	target_include_directories(engine-legacy PRIVATE "${vulkanShaderBuildDir}")
 	target_compile_definitions(engine-legacy PRIVATE RECOIL_VULKAN)

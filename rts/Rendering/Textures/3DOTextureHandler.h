@@ -1,7 +1,6 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef _3DO_TEXTURE_HANDLER_H
-#define _3DO_TEXTURE_HANDLER_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -49,8 +48,7 @@ private:
 	int bigTexX = 0;
 	int bigTexY = 0;
 	int numLevels = 0;
+	bool vulkanAtlases = false;
 };
 
 extern C3DOTextureHandler textureHandler3DO;
-
-#endif /* _3DO_TEXTURE_HANDLER_H */

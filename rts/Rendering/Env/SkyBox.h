@@ -1,8 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef SKY_BOX_H
-#define SKY_BOX_H
+#pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "ISky.h"
@@ -38,9 +38,8 @@ public:
 
 private:
 	VAO skyVAO; //even though VAO has no attached VBOs, it's still needed to perform rendering
-	Shader::IProgramObject* shader;
+	Shader::IProgramObject* shader = nullptr;
 	MapTexture skyTex;
+	uint32_t vulkanSkyTexture = UINT32_MAX;
 	bool valid = false;
 };
-
-#endif // SKY_BOX_H

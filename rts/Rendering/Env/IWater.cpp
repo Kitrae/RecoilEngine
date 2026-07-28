@@ -11,6 +11,7 @@
 #include "Game/GameHelper.h"
 #include "Map/ReadMap.h"
 #include "Map/BaseGroundDrawer.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/Features/FeatureDrawer.h"
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/Env/Particles/ProjectileDrawer.h"
@@ -22,6 +23,17 @@
 #include "System/Log/ILog.h"
 
 #include "System/Misc/TracyDefs.h"
+
+namespace
+{
+	class CNullWater final : public IWater
+	{
+	public:
+		void InitResources(bool loadShader = true) override {}
+		void FreeResources() override {}
+		WATER_RENDERER GetID() const override { return WATER_RENDERER_BASIC; }
+	};
+}
 
 CONFIG(int, Water)
 .defaultValue(IWater::WATER_RENDERER_REFLECTIVE)
@@ -57,6 +69,11 @@ void IWater::SetModelClippingPlane(const double* planeEq) {
 void IWater::SetWater(int rendererMode)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan()) {
+		water = std::make_unique<CNullWater>();
+		return;
+	}
+
 	static std::array<bool, NUM_WATER_RENDERERS> allowedModes = {
 		true,
 		GLAD_GL_ARB_fragment_program && ProgramStringIsNative(GL_FRAGMENT_PROGRAM_ARB, "ARB/water.fp"),
@@ -218,4 +235,3 @@ void IWater::DrawRefractions(const double* clipPlaneEqs, bool drawGround, bool d
 
 	game->SetDrawMode(CGame::gameNormalDraw);
 }
-

@@ -230,6 +230,11 @@ CGrassDrawer::CGrassDrawer()
 
 	}
 
+	if (globalRendering->IsVulkan()) {
+		grassOff = true;
+		return;
+	}
+
 	// create/load blade texture
 	{
 		CBitmap grassBladeTexBM;
@@ -266,6 +271,9 @@ CGrassDrawer::~CGrassDrawer()
 {
 	eventHandler.RemoveClient(this);
 	configHandler->RemoveObserver(this);
+
+	if (globalRendering->IsVulkan())
+		return;
 
 	glDeleteLists(grassDL, 1);
 	glDeleteTextures(1, &grassBladeTex);
@@ -1062,5 +1070,4 @@ void CGrassDrawer::UnsyncedHeightMapUpdate(const SRectangle& rect)
 		}
 	}
 }
-
 

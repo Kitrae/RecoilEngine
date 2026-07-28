@@ -144,6 +144,22 @@ void CMouseHandler::KillStatic()
 void CMouseHandler::ReloadCursors()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan()) {
+		activeCursorIdx = 0;
+		loadedCursors.clear();
+		loadedCursors.emplace_back();
+		cursorCommandMap.clear();
+		cursorCommandMap["none"] = 0;
+		cursorCommandMap[""] = 0;
+		cursorFileMap.clear();
+		cursorFileMap["null"] = 0;
+		activeCursorName = "none";
+		queuedCursorName.clear();
+		hwHideCursor = false;
+		SDL_ShowCursor(SDL_ENABLE);
+		return;
+	}
+
 	const CMouseCursor::HotSpot mCenter  = CMouseCursor::Center;
 	const CMouseCursor::HotSpot mTopLeft = CMouseCursor::TopLeft;
 
@@ -1079,6 +1095,10 @@ bool CMouseHandler::AssignMouseCursor(
 	bool overwrite
 ) {
 	RECOIL_DETAILED_TRACY_ZONE;
+
+	if (globalRendering->IsVulkan())
+		return false;
+
 	const auto  cmdIt = cursorCommandMap.find(cmdName);
 	const auto fileIt = cursorFileMap.find(fileName);
 
@@ -1122,6 +1142,10 @@ bool CMouseHandler::ReplaceMouseCursor(
 	CMouseCursor::HotSpot hotSpot
 ) {
 	RECOIL_DETAILED_TRACY_ZONE;
+
+	if (globalRendering->IsVulkan())
+		return false;
+
 	const auto fileIt = cursorFileMap.find(oldName);
 
 	if (fileIt == cursorFileMap.end())

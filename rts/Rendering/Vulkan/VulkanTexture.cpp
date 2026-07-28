@@ -8,7 +8,44 @@
 
 namespace Vulkan
 {
-	bool Context::CreateImage(uint32_t width, uint32_t height, VkImage& image, VkDeviceMemory& memory)
+	namespace
+	{
+		VkFormat GetVkFormat(TextureFormat format)
+		{
+			switch (format) {
+				case TextureFormat::Rgba8Srgb: return VK_FORMAT_R8G8B8A8_SRGB;
+				case TextureFormat::Rgba8Unorm: return VK_FORMAT_R8G8B8A8_UNORM;
+				case TextureFormat::Rg32Float: return VK_FORMAT_R32G32_SFLOAT;
+				case TextureFormat::R32Float: return VK_FORMAT_R32_SFLOAT;
+			}
+
+			return VK_FORMAT_UNDEFINED;
+		}
+
+		std::size_t GetBytesPerPixel(TextureFormat format)
+		{
+			switch (format) {
+				case TextureFormat::Rgba8Srgb:
+				case TextureFormat::Rgba8Unorm:
+				case TextureFormat::R32Float:
+					return 4;
+				case TextureFormat::Rg32Float:
+					return 8;
+			}
+
+			return 0;
+		}
+	}
+
+	bool Context::CreateImage(
+		uint32_t width,
+		uint32_t height,
+		uint32_t arrayLayers,
+		VkImageCreateFlags flags,
+		VkFormat format,
+		VkImage& image,
+		VkDeviceMemory& memory
+	)
 	{
 		VkPhysicalDeviceProperties deviceProperties{};
 		vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
@@ -16,20 +53,22 @@ namespace Vulkan
 			return Fail("The Vulkan texture exceeds the device's maximum 2D image dimension");
 
 		VkFormatProperties formatProperties{};
-		vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_R8G8B8A8_SRGB, &formatProperties);
+		vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &formatProperties);
 		constexpr VkFormatFeatureFlags requiredFeatures =
 			VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
-			VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+			VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+			VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
 		if ((formatProperties.optimalTilingFeatures & requiredFeatures) != requiredFeatures)
-			return Fail("The Vulkan device cannot upload and sample RGBA8 sRGB textures");
+			return Fail("The Vulkan device cannot upload and linearly sample the requested texture format");
 
 		VkImageCreateInfo imageInfo{};
 		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageInfo.flags = flags;
 		imageInfo.imageType = VK_IMAGE_TYPE_2D;
 		imageInfo.extent = {width, height, 1};
 		imageInfo.mipLevels = 1;
-		imageInfo.arrayLayers = 1;
-		imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+		imageInfo.arrayLayers = arrayLayers;
+		imageInfo.format = format;
 		imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
 		imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -74,7 +113,14 @@ namespace Vulkan
 		return true;
 	}
 
-	bool Context::SubmitTextureUpload(VkBuffer stagingBuffer, VkImage image, uint32_t width, uint32_t height)
+	bool Context::SubmitTextureUpload(
+		VkBuffer stagingBuffer,
+		VkImage image,
+		uint32_t width,
+		uint32_t height,
+		uint32_t arrayLayers,
+		VkDeviceSize layerSize
+	)
 	{
 		VkCommandBufferAllocateInfo allocateInfo{};
 		allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -104,7 +150,7 @@ namespace Vulkan
 		uploadBarrier.image = image;
 		uploadBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		uploadBarrier.subresourceRange.levelCount = 1;
-		uploadBarrier.subresourceRange.layerCount = 1;
+		uploadBarrier.subresourceRange.layerCount = arrayLayers;
 
 		vkCmdPipelineBarrier(
 			commandBuffer,
@@ -119,17 +165,22 @@ namespace Vulkan
 			&uploadBarrier
 		);
 
-		VkBufferImageCopy copyRegion{};
-		copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		copyRegion.imageSubresource.layerCount = 1;
-		copyRegion.imageExtent = {width, height, 1};
+		std::vector<VkBufferImageCopy> copyRegions(arrayLayers);
+		for (uint32_t layer = 0; layer < arrayLayers; ++layer) {
+			auto& copyRegion = copyRegions[layer];
+			copyRegion.bufferOffset = layer * layerSize;
+			copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			copyRegion.imageSubresource.baseArrayLayer = layer;
+			copyRegion.imageSubresource.layerCount = 1;
+			copyRegion.imageExtent = {width, height, 1};
+		}
 		vkCmdCopyBufferToImage(
 			commandBuffer,
 			stagingBuffer,
 			image,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			1,
-			&copyRegion
+			static_cast<uint32_t>(copyRegions.size()),
+			copyRegions.data()
 		);
 
 		VkImageMemoryBarrier sampleBarrier = uploadBarrier;
@@ -141,7 +192,7 @@ namespace Vulkan
 		vkCmdPipelineBarrier(
 			commandBuffer,
 			VK_PIPELINE_STAGE_TRANSFER_BIT,
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 			0,
 			0,
 			nullptr,
@@ -178,11 +229,11 @@ namespace Vulkan
 		VkImageViewCreateInfo viewInfo{};
 		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		viewInfo.image = texture.image;
-		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		viewInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+		viewInfo.viewType = texture.viewType;
+		viewInfo.format = texture.format;
 		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		viewInfo.subresourceRange.levelCount = 1;
-		viewInfo.subresourceRange.layerCount = 1;
+		viewInfo.subresourceRange.layerCount = texture.arrayLayers;
 		if (vkCreateImageView(device, &viewInfo, nullptr, &texture.imageView) != VK_SUCCESS)
 			return Fail("Failed creating a Vulkan texture image view");
 
@@ -234,16 +285,33 @@ namespace Vulkan
 		return true;
 	}
 
-	bool Context::CreateTextureResource(const uint8_t* pixels, uint32_t width, uint32_t height, Texture& texture)
+	bool Context::CreateTextureResource(
+		const void* pixels,
+		std::size_t size,
+		uint32_t width,
+		uint32_t height,
+		uint32_t arrayLayers,
+		VkImageCreateFlags flags,
+		VkImageViewType viewType,
+		TextureFormat format,
+		Texture& texture
+	)
 	{
-		if (pixels == nullptr || width == 0 || height == 0)
+		if (pixels == nullptr || width == 0 || height == 0 || arrayLayers == 0)
 			return Fail("Cannot upload an empty Vulkan texture");
 
-		constexpr VkDeviceSize bytesPerPixel = 4;
+		const VkFormat vkFormat = GetVkFormat(format);
+		const VkDeviceSize bytesPerPixel = GetBytesPerPixel(format);
+		if (vkFormat == VK_FORMAT_UNDEFINED || bytesPerPixel == 0)
+			return Fail("Cannot upload a Vulkan texture with an unsupported format");
+
 		constexpr VkDeviceSize maxSize = std::numeric_limits<VkDeviceSize>::max();
-		if (width > maxSize / height / bytesPerPixel)
+		if (width > maxSize / height / bytesPerPixel / arrayLayers)
 			return Fail("The Vulkan texture dimensions are too large");
-		const VkDeviceSize imageSize = static_cast<VkDeviceSize>(width) * height * bytesPerPixel;
+		const VkDeviceSize layerSize = static_cast<VkDeviceSize>(width) * height * bytesPerPixel;
+		const VkDeviceSize imageSize = layerSize * arrayLayers;
+		if (size != imageSize)
+			return Fail("The Vulkan texture data size does not match its dimensions and format");
 
 		VkBuffer stagingBuffer = VK_NULL_HANDLE;
 		VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
@@ -266,9 +334,20 @@ namespace Vulkan
 		std::memcpy(mappedMemory, pixels, static_cast<std::size_t>(imageSize));
 		vkUnmapMemory(device, stagingMemory);
 
-		bool uploaded = CreateImage(width, height, texture.image, texture.memory);
+		texture.format = vkFormat;
+		texture.viewType = viewType;
+		texture.arrayLayers = arrayLayers;
+		bool uploaded = CreateImage(
+			width,
+			height,
+			arrayLayers,
+			flags,
+			texture.format,
+			texture.image,
+			texture.memory
+		);
 		if (uploaded)
-			uploaded = SubmitTextureUpload(stagingBuffer, texture.image, width, height);
+			uploaded = SubmitTextureUpload(stagingBuffer, texture.image, width, height, arrayLayers, layerSize);
 		if (uploaded)
 			uploaded = CreateTextureDescriptor(texture);
 
@@ -283,7 +362,13 @@ namespace Vulkan
 		return true;
 	}
 
-	std::optional<TextureHandle> Context::CreateTextureRGBA8(const uint8_t* pixels, uint32_t width, uint32_t height)
+	std::optional<TextureHandle> Context::CreateTexture(
+		const void* pixels,
+		std::size_t size,
+		uint32_t width,
+		uint32_t height,
+		TextureFormat format
+	)
 	{
 		if (textures.size() >= INVALID_TEXTURE_HANDLE) {
 			Fail("The Vulkan texture handle space is exhausted");
@@ -295,12 +380,97 @@ namespace Vulkan
 		}
 
 		Texture texture;
-		if (!CreateTextureResource(pixels, width, height, texture))
+		if (!CreateTextureResource(
+			pixels,
+			size,
+			width,
+			height,
+			1,
+			0,
+			VK_IMAGE_VIEW_TYPE_2D,
+			format,
+			texture
+		)) {
 			return std::nullopt;
+		}
 
 		const auto handle = static_cast<TextureHandle>(textures.size());
 		textures.push_back(texture);
 		return handle;
+	}
+
+	std::optional<TextureHandle> Context::CreateCubemap(
+		const void* pixels,
+		std::size_t size,
+		uint32_t faceSize,
+		TextureFormat format
+	) {
+		if (textures.size() >= INVALID_TEXTURE_HANDLE) {
+			Fail("The Vulkan texture handle space is exhausted");
+			return std::nullopt;
+		}
+		if (vkDeviceWaitIdle(device) != VK_SUCCESS) {
+			Fail("Failed waiting for the Vulkan device before uploading a cubemap");
+			return std::nullopt;
+		}
+
+		Texture texture;
+		if (!CreateTextureResource(
+			pixels,
+			size,
+			faceSize,
+			faceSize,
+			6,
+			VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+			VK_IMAGE_VIEW_TYPE_CUBE,
+			format,
+			texture
+		)) {
+			return std::nullopt;
+		}
+
+		const auto handle = static_cast<TextureHandle>(textures.size());
+		textures.push_back(texture);
+		return handle;
+	}
+
+	bool Context::UpdateTexture(
+		TextureHandle handle,
+		const void* pixels,
+		std::size_t size,
+		uint32_t width,
+		uint32_t height,
+		TextureFormat format
+	) {
+		if (handle >= textures.size() || textures[handle].descriptorSet == VK_NULL_HANDLE)
+			return Fail("Cannot update an invalid Vulkan texture");
+		if (vkDeviceWaitIdle(device) != VK_SUCCESS)
+			return Fail("Failed waiting for the Vulkan device before updating a texture");
+
+		Texture replacement;
+		if (!CreateTextureResource(
+			pixels,
+			size,
+			width,
+			height,
+			1,
+			0,
+			VK_IMAGE_VIEW_TYPE_2D,
+			format,
+			replacement
+		)) {
+			return false;
+		}
+
+		std::swap(textures[handle], replacement);
+		DestroyTexture(replacement);
+		return true;
+	}
+
+	std::optional<TextureHandle> Context::CreateTextureRGBA8(const uint8_t* pixels, uint32_t width, uint32_t height)
+	{
+		const std::size_t size = static_cast<std::size_t>(width) * height * 4;
+		return CreateTexture(pixels, size, width, height, TextureFormat::Rgba8Srgb);
 	}
 
 	bool Context::UpdateTextureRGBA8(
@@ -309,15 +479,20 @@ namespace Vulkan
 		uint32_t width,
 		uint32_t height
 	) {
+		const std::size_t size = static_cast<std::size_t>(width) * height * 4;
+		return UpdateTexture(handle, pixels, size, width, height, TextureFormat::Rgba8Srgb);
+	}
+
+	bool Context::DestroyTexture(TextureHandle handle)
+	{
 		if (handle >= textures.size() || textures[handle].descriptorSet == VK_NULL_HANDLE)
-			return Fail("Cannot update an invalid Vulkan texture");
+			return Fail("Cannot destroy an invalid Vulkan texture");
+		if (handle == solidTexture || handle == startupTexture)
+			return Fail("Cannot destroy an internal Vulkan texture");
+		if (vkDeviceWaitIdle(device) != VK_SUCCESS)
+			return Fail("Failed waiting for the Vulkan device before destroying a texture");
 
-		Texture replacement;
-		if (!CreateTextureResource(pixels, width, height, replacement))
-			return false;
-
-		std::swap(textures[handle], replacement);
-		DestroyTexture(replacement);
+		DestroyTexture(textures[handle]);
 		return true;
 	}
 
@@ -362,6 +537,7 @@ namespace Vulkan
 			DestroyTexture(texture);
 
 		textures.clear();
+		solidTexture = INVALID_TEXTURE_HANDLE;
 		startupTexture = INVALID_TEXTURE_HANDLE;
 	}
 }

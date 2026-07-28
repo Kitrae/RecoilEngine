@@ -22,7 +22,10 @@ void IInfoTextureHandler::Create()
 #ifdef HEADLESS
 		infoTextureHandler = std::make_unique<CNullInfoTextureHandler>();
 #else
-		infoTextureHandler = std::make_unique<CInfoTextureHandler>();
+		if (globalRendering->IsVulkan())
+			infoTextureHandler = std::make_unique<CNullInfoTextureHandler>();
+		else
+			infoTextureHandler = std::make_unique<CInfoTextureHandler>();
 #endif
 	} catch (const opengl_error& glerr) {
 		infoTextureHandler = nullptr;

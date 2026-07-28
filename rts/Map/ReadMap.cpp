@@ -12,6 +12,7 @@
 #include "Rendering/Env/MapRendering.h"
 #include "SMF/SMFReadMap.h"
 #include "Game/LoadScreen.h"
+#include "Rendering/GlobalRendering.h"
 #include "System/EventHandler.h"
 #include "System/Exceptions.h"
 #include "System/SpringMath.h"
@@ -132,7 +133,14 @@ std::vector<uint8_t> CReadMap::unsyncedHeightMapDigests;
 
 MapTexture::~MapTexture() {
 	// do NOT delete a Lua-set texture here!
-	glDeleteTextures(1, &texIDs[RAW_TEX_IDX]);
+	if (texIDs[RAW_TEX_IDX] != 0 && ownsRawTexture) {
+		if (rawTextureIsVulkan) {
+			if (globalRendering != nullptr)
+				globalRendering->DestroyVulkanTexture(texIDs[RAW_TEX_IDX]);
+		} else {
+			glDeleteTextures(1, &texIDs[RAW_TEX_IDX]);
+		}
+	}
 
 	texIDs[RAW_TEX_IDX] = 0;
 	texIDs[LUA_TEX_IDX] = 0;

@@ -1,7 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-#ifndef MAPTEXTURE_H
-#define MAPTEXTURE_H
+#pragma once
+
+#include <cstdint>
 
 #include "System/type2.h"
 
@@ -39,7 +40,16 @@ public:
 	void SetRawSize(const int2 size) { texDims[RAW_TEX_IDX] = size; }
 	void SetLuaSize(const int2 size) { texDims[LUA_TEX_IDX] = size; }
 
-	void SetRawTexID(unsigned int rawTexID) { texIDs[RAW_TEX_IDX] = rawTexID; }
+	void SetRawTexID(unsigned int rawTexID, bool ownsTexture = true) {
+		texIDs[RAW_TEX_IDX] = rawTexID;
+		rawTextureIsVulkan = false;
+		ownsRawTexture = ownsTexture;
+	}
+	void SetRawVulkanTexID(uint32_t rawTexID, bool ownsTexture = true) {
+		texIDs[RAW_TEX_IDX] = rawTexID;
+		rawTextureIsVulkan = true;
+		ownsRawTexture = ownsTexture;
+	}
 	void SetLuaTexID(unsigned int luaTexID) { texIDs[LUA_TEX_IDX] = luaTexID; }
 
 	void SetLuaTexture(const MapTextureData& texData) {
@@ -52,7 +62,6 @@ private:
 	unsigned int texIDs[2];
 
 	int2 texDims[2];
+	bool rawTextureIsVulkan = false;
+	bool ownsRawTexture = true;
 };
-
-#endif
-

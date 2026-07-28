@@ -253,6 +253,17 @@ void CProjectileDrawer::Init() {
 	groundringtex = &groundFXAtlas->GetTexture("groundring");
 	seismictex = &groundFXAtlas->GetTexture("seismic");
 
+	if (globalRendering->IsVulkan()) {
+		renderProjectiles.reserve(projectileHandler.maxParticles + projectileHandler.maxNanoParticles);
+		for (auto& mr : modelRenderers) {
+			mr.Clear();
+		}
+		LoadWeaponTextures();
+		drawPerlinTex = false;
+		wantSoften = false;
+		return;
+	}
+
 
 	for (int a = 0; a < 4; ++a) {
 		perlinBlend[a] = 0.0f;
@@ -342,7 +353,8 @@ void CProjectileDrawer::Kill() {
 	eventHandler.RemoveClient(this);
 	autoLinkedEvents.clear();
 
-	glDeleteTextures(8, perlinBlendTex);
+	if (!globalRendering->IsVulkan())
+		glDeleteTextures(8, perlinBlendTex);
 	spring::SafeDelete(textureAtlas);
 	spring::SafeDelete(groundFXAtlas);
 
@@ -359,6 +371,14 @@ void CProjectileDrawer::Kill() {
 	drawPerlinTex = false;
 
 	drawSorted = true;
+
+	if (globalRendering->IsVulkan()) {
+		fxShader = nullptr;
+		fxShadowShader = nullptr;
+		sdbc = nullptr;
+		configHandler->Set("SoftParticles", wantSoften);
+		return;
+	}
 
 	shaderHandler->ReleaseProgramObjects("[ProjectileDrawer::VFS]");
 	fxShader = nullptr;
@@ -1252,4 +1272,3 @@ void CProjectileDrawer::RenderProjectileDestroyed(const CProjectile* p)
 	if (p->model != nullptr)
 		modelRenderers[MDL_TYPE(p)].DelObject(p);
 }
-

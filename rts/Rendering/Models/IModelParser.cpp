@@ -13,6 +13,7 @@
 #include "3DModelVAO.hpp"
 #include "ModelsLock.h"
 #include "Game/GlobalUnsynced.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/Textures/S3OTextureHandler.h"
 #include "Net/Protocol/NetProtocol.h" // NETLOG
 #include "Sim/Misc/CollisionVolume.h"
@@ -471,7 +472,7 @@ void CModelLoader::Upload(S3DModel* model) const {
 		S3DModelVAO::GetInstance().UploadVBOs();
 
 		// 3DO atlases are preloaded C3DOTextureHandler::Init()
-		if (model->type != MODELTYPE_3DO) {
+		if (model->type != MODELTYPE_3DO && !globalRendering->IsVulkan()) {
 			// make sure textures (already preloaded) are fully loaded
 			textureHandlerS3O.LoadTexture(model);
 		}
@@ -488,4 +489,3 @@ void CModelLoader::Upload(S3DModel* model) const {
 
 	model->uploaded = true;
 }
-

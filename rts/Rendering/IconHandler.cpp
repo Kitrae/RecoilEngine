@@ -12,6 +12,10 @@
 
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/GlobalRendering.h"
+#ifndef HEADLESS
+#include "Rendering/Vulkan/VulkanMapTexture.h"
+#endif
 #include "System/Log/ILog.h"
 #include "System/UnorderedSet.hpp"
 #include "System/UnorderedMap.hpp"
@@ -34,9 +38,18 @@ void CIconHandler::Kill()
 {
 	defaultIconIdx = INVALID_ICON_INDEX;
 
-	glDeleteTextures(2, atlasTextureIDs.data());
+	if (globalRendering->IsVulkan()) {
+		for (size_t atlasIdx = 0; atlasIdx < atlasTextureIDs.size(); ++atlasIdx) {
+			if (vulkanAtlasTextures.test(atlasIdx))
+				globalRendering->DestroyVulkanTexture(atlasTextureIDs[atlasIdx]);
+		}
+	} else {
+		glDeleteTextures(2, atlasTextureIDs.data());
+	}
+
 	atlasTextureIDs = { 0 };
 	atlasTextureSizes = { int2{0, 0}, int2{0, 0} };
+	vulkanAtlasTextures.reset();
 
 	atlases = { nullptr };
 	atlasNeedsUpdate = { false };
@@ -48,6 +61,9 @@ void CIconHandler::Kill()
 
 void CIconHandler::DumpAtlasTextures(const std::string& fileExt) const
 {
+	if (globalRendering->IsVulkan())
+		return;
+
 	if (atlasTextureIDs[0]) {
 		for (int level = 0; level < DEFAULT_NUM_OF_TEXTURE_LEVELS; ++level) {
 			glSaveTexture(atlasTextureIDs[0], fmt::format("IconsAtlas1-{}.{}", level, fileExt).c_str(), level);
@@ -139,15 +155,32 @@ bool CIconHandler::CreateAtlasTexture(size_t atlasIdx)
 		if (!bm.Load(*allFiles.begin()))
 			return false;
 
-		glDeleteTextures(1, &atlasTextureIDs[atlasIdx]);
-		atlasTextureIDs[atlasIdx] = 0; // just in case
-		atlasTextureIDs[atlasIdx] = bm.CreateMipMapTexture();
-		atlasTextureSizes[atlasIdx] = int2(bm.xsize, bm.ysize);
+		if (globalRendering->IsVulkan()) {
+#ifdef HEADLESS
+			return false;
+#else
+			const auto texture = Vulkan::CreateMapTexture(*globalRendering, bm);
+			if (!texture.has_value())
+				return false;
 
-		// CBitmap::CreateTexture defaults to GL_REPEAT, which is not what we want for atlas
-		glBindTexture(GL_TEXTURE_2D, atlasTextureIDs[atlasIdx]);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			if (vulkanAtlasTextures.test(atlasIdx))
+				globalRendering->DestroyVulkanTexture(atlasTextureIDs[atlasIdx]);
+
+			atlasTextureIDs[atlasIdx] = *texture;
+			vulkanAtlasTextures.set(atlasIdx);
+#endif
+		} else {
+			glDeleteTextures(1, &atlasTextureIDs[atlasIdx]);
+			atlasTextureIDs[atlasIdx] = 0; // just in case
+			atlasTextureIDs[atlasIdx] = bm.CreateMipMapTexture();
+
+			// CBitmap::CreateTexture defaults to GL_REPEAT, which is not what we want for atlas
+			glBindTexture(GL_TEXTURE_2D, atlasTextureIDs[atlasIdx]);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		}
+
+		atlasTextureSizes[atlasIdx] = int2(bm.xsize, bm.ysize);
 
 		return true;
 	}
@@ -157,12 +190,15 @@ bool CIconHandler::CreateAtlasTexture(size_t atlasIdx)
 
 	atlasTextureSizes[atlasIdx] = atlas->GetAtlasSize();
 
-	if (atlasTextureIDs[atlasIdx]) {
+	if (globalRendering->IsVulkan()) {
+		if (vulkanAtlasTextures.test(atlasIdx))
+			globalRendering->DestroyVulkanTexture(atlasTextureIDs[atlasIdx]);
+	} else if (atlasTextureIDs[atlasIdx]) {
 		glDeleteTextures(1, &atlasTextureIDs[atlasIdx]);
-		atlasTextureIDs[atlasIdx] = 0; // just in case
 	}
 
 	atlasTextureIDs[atlasIdx] = atlas->DisownTexture();
+	vulkanAtlasTextures.set(atlasIdx, globalRendering->IsVulkan());
 	atlas = nullptr;
 
 	return true;

@@ -72,6 +72,100 @@ namespace Vulkan
 		return true;
 	}
 
+	std::optional<BufferHandle> Context::CreateDataBuffer(
+		const void* data,
+		std::size_t dataSize,
+		std::size_t capacity,
+		BufferType type
+	) {
+		if (capacity == 0 || dataSize > capacity || (dataSize > 0 && data == nullptr)) {
+			Fail("Invalid Vulkan data-buffer size");
+			return std::nullopt;
+		}
+
+		VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		if (type == BufferType::Index)
+			usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+
+		DataBuffer buffer;
+		if (!CreateBuffer(
+			static_cast<VkDeviceSize>(capacity),
+			usage,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			buffer.buffer,
+			buffer.memory
+		)) {
+			return std::nullopt;
+		}
+
+		if (vkMapMemory(device, buffer.memory, 0, buffer.capacity = capacity, 0, &buffer.mappedMemory) != VK_SUCCESS) {
+			DestroyDataBuffer(buffer);
+			Fail("Failed mapping a Vulkan data buffer");
+			return std::nullopt;
+		}
+
+		if (dataSize > 0)
+			std::memcpy(buffer.mappedMemory, data, dataSize);
+
+		const BufferHandle handle = static_cast<BufferHandle>(dataBuffers.size());
+		if (handle == INVALID_BUFFER_HANDLE) {
+			DestroyDataBuffer(buffer);
+			Fail("Vulkan data-buffer handle space is exhausted");
+			return std::nullopt;
+		}
+
+		dataBuffers.push_back(buffer);
+		return handle;
+	}
+
+	bool Context::UpdateDataBuffer(BufferHandle handle, const void* data, std::size_t size, std::size_t offset)
+	{
+		if (
+			handle >= dataBuffers.size() ||
+			data == nullptr ||
+			dataBuffers[handle].mappedMemory == nullptr ||
+			offset > dataBuffers[handle].capacity ||
+			size > dataBuffers[handle].capacity - offset
+		) {
+			return Fail("Invalid Vulkan data-buffer update");
+		}
+
+		std::memcpy(static_cast<uint8_t*>(dataBuffers[handle].mappedMemory) + offset, data, size);
+		return true;
+	}
+
+	bool Context::DestroyDataBuffer(BufferHandle handle)
+	{
+		if (handle >= dataBuffers.size() || dataBuffers[handle].buffer == VK_NULL_HANDLE)
+			return false;
+
+		DestroyDataBuffer(dataBuffers[handle]);
+		return true;
+	}
+
+	void Context::DestroyDataBuffer(DataBuffer& buffer)
+	{
+		if (device == VK_NULL_HANDLE)
+			return;
+
+		if (buffer.mappedMemory != nullptr)
+			vkUnmapMemory(device, buffer.memory);
+		if (buffer.buffer != VK_NULL_HANDLE)
+			vkDestroyBuffer(device, buffer.buffer, nullptr);
+		if (buffer.memory != VK_NULL_HANDLE)
+			vkFreeMemory(device, buffer.memory, nullptr);
+
+		buffer = {};
+	}
+
+	void Context::DestroyDataBuffers()
+	{
+		for (auto& buffer : dataBuffers)
+			DestroyDataBuffer(buffer);
+
+		dataBuffers.clear();
+	}
+
 	bool Context::ValidateDrawBatch(
 		std::span<const Vertex2D> vertices,
 		std::span<const uint32_t> indices,
@@ -112,6 +206,13 @@ namespace Vulkan
 		drawIndices.assign(indices.begin(), indices.end());
 		drawRanges.assign(ranges.begin(), ranges.end());
 		return true;
+	}
+
+	void Context::BeginFrame()
+	{
+		drawVertices.clear();
+		drawIndices.clear();
+		drawRanges.clear();
 	}
 
 	bool Context::AppendDrawBatch(

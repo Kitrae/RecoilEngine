@@ -2452,7 +2452,7 @@ bool CSplitLuaHandle::InitUnsynced()
 }
 
 
-bool CSplitLuaHandle::Init(bool dryRun)
+bool CSplitLuaHandle::Init(bool dryRun, bool initUnsynced)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	SetFullCtrl(true);
@@ -2462,7 +2462,16 @@ bool CSplitLuaHandle::Init(bool dryRun)
 	SetReadAllyTeam(CEventClient::AllAccessTeam);
 	SetSelectTeam(GetInitSelectTeam());
 
-	return InitSynced(dryRun) && (dryRun || InitUnsynced());
+	if (!InitSynced(dryRun))
+		return false;
+
+	if (dryRun || !initUnsynced) {
+		if (!initUnsynced)
+			lua_settop(unsyncedLuaHandle.GetLuaState(), 0);
+		return true;
+	}
+
+	return InitUnsynced();
 }
 
 

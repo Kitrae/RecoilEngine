@@ -59,6 +59,9 @@
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/Textures/NamedTextures.h"
 #include "Rendering/Textures/TextureAtlas.h"
+#if defined(RECOIL_VULKAN)
+#include "Rendering/Vulkan/VulkanStartupScreen.h"
+#endif
 #include "Sim/Misc/DefinitionTag.h" // DefType
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/ModInfo.h"
@@ -289,18 +292,6 @@ bool SpringApp::Init()
 	// Affinity
 	Threading::SetThreadScheduler();
 
-	if (globalRendering->IsVulkan()) {
-		inputToken = input.AddHandler([](const SDL_Event& event) {
-			if (event.type == SDL_QUIT || (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE))
-				gu->globalQuit = true;
-
-			return false;
-		});
-
-		LOG("[SpringApp::%s] Vulkan startup reached the engine frame loop", __func__);
-		return true;
-	}
-
 	CInfoConsole::InitStatic();
 	CMouseHandler::InitStatic();
 
@@ -319,13 +310,18 @@ bool SpringApp::Init()
 	keyCodes.Reset();
 	scanCodes.Reset();
 
-	CNamedTextures::Init();
-	LuaOpenGL::Init();
+	if (!globalRendering->IsVulkan()) {
+		CNamedTextures::Init();
+		LuaOpenGL::Init();
+	}
 	ISound::Initialize(false);
 
 	// Lua socket restrictions
 	CLuaSocketRestrictions::InitStatic();
 	LuaVFSDownload::Init();
+
+	if (globalRendering->IsVulkan())
+		LOG("[SpringApp::%s] Vulkan initialized engine systems and native aGui rendering", __func__);
 
 	// Create CGameSetup and CPreGame objects
 	Startup();
@@ -683,10 +679,10 @@ void SpringApp::LoadSpringMenu()
 	const std::string& startScript = (cfgScript.empty() && CFileHandler::FileExists(vfsScript, SPRING_VFS_PWD_ALL))? vfsScript: cfgScript;
 
 	// bypass default menu if we have a valid LuaMenu handler
-	if (CLuaMenuController::ActivateInstance(""))
+	if (!globalRendering->IsVulkan() && CLuaMenuController::ActivateInstance(""))
 		return;
 
-	if (FLAGS_oldmenu || startScript.empty()) {
+	if (globalRendering->IsVulkan() || FLAGS_oldmenu || startScript.empty()) {
 		// old menu
 	#ifdef HEADLESS
 		handleerror(nullptr,
@@ -893,6 +889,16 @@ bool SpringApp::Update()
 	globalRendering->UpdateWindow();
 	globalRendering->UpdateTimer();
 
+	if (globalRendering->IsVulkan()) {
+		globalRendering->BeginVulkanFrame();
+#if defined(RECOIL_VULKAN)
+		if (activeController == nullptr && font != nullptr) {
+			if (!Vulkan::ConfigureStartupScreen(*globalRendering, *font, SpringVersion::GetFull()))
+				LOG_L(L_ERROR, "[SpringApp::%s] Failed preparing the Vulkan startup frame", __func__);
+		}
+#endif
+	}
+
 	#if 0
 	if (activeController == nullptr)
 		return true;
@@ -905,7 +911,8 @@ bool SpringApp::Update()
 	retc = (        activeController == nullptr || activeController->Update());
 
 	auto lock = CLoadLock::GetUniqueLock();
-	swap = globalRendering->IsVulkan() || (retc && activeController != nullptr && activeController->Draw());
+	const bool controllerDrew = retc && activeController != nullptr && activeController->Draw();
+	swap = globalRendering->IsVulkan() || controllerDrew;
 	#endif
 
 	// always swap by default, not doing so can upset some drivers
@@ -1135,7 +1142,8 @@ bool SpringApp::MainEventHandler(const SDL_Event& event)
 					{
 						SCOPED_ONCE_TIMER("ActiveController::ResizeEvent");
 
-						activeController->ResizeEvent();
+						if (activeController != nullptr)
+							activeController->ResizeEvent();
 						mouseInput->InstallWndCallback();
 					}
 

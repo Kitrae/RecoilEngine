@@ -253,7 +253,8 @@ static CFeature* ParseFeature(lua_State* L, const char* caller, int index)
 
 void LuaOpenGL::Init()
 {
-	glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);
+	if (!globalRendering->IsVulkan())
+		glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);
 
 	canUseShaders = configHandler->GetBool("LuaShaders");
 
@@ -266,6 +267,11 @@ void LuaOpenGL::Init()
 
 void LuaOpenGL::Free()
 {
+	if (globalRendering->IsVulkan()) {
+		occlusionQueries.clear();
+		return;
+	}
+
 	glDisable(GL_VERTEX_PROGRAM_POINT_SIZE);
 
 	for (const OcclusionQuery* q: occlusionQueries) {

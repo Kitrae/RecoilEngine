@@ -5,6 +5,7 @@
 #include "Gui.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/GlobalRendering.h"
 #include "System/Log/ILog.h"
 
 namespace agui
@@ -33,20 +34,28 @@ void Button::DrawSelf()
 	DrawBox(GL_QUADS, { 0.8f, 0.8f, 0.8f, opacity });
 
 	if (clicked) {
-		glBlendFunc(GL_ONE, GL_ONE); // additive blending
+		if (!globalRendering->IsVulkan())
+			glBlendFunc(GL_ONE, GL_ONE); // additive blending
 
 		DrawBox(GL_QUADS, { 0.2f, 0.0f, 0.0f, opacity });
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glLineWidth(1.49f);
+		if (!globalRendering->IsVulkan()) {
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glLineWidth(1.49f);
+		}
 		DrawBox(GL_LINE_LOOP, { 1.0f, 0.0f, 0.0f, opacity / 2.f });
-		glLineWidth(1.0f);
+		if (!globalRendering->IsVulkan())
+			glLineWidth(1.0f);
 	} else if (hovered) {
-		glBlendFunc(GL_ONE, GL_ONE); // additive blending
+		if (!globalRendering->IsVulkan())
+			glBlendFunc(GL_ONE, GL_ONE); // additive blending
 		DrawBox(GL_QUADS, { 0.0f, 0.0f, 0.2f, opacity });
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glLineWidth(1.49f);
+		if (!globalRendering->IsVulkan()) {
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glLineWidth(1.49f);
+		}
 		DrawBox(GL_LINE_LOOP, { 1.0f, 1.0f, 1.0f, opacity / 2.0f });
-		glLineWidth(1.0f);
+		if (!globalRendering->IsVulkan())
+			glLineWidth(1.0f);
 	}
 
 	font->Begin();

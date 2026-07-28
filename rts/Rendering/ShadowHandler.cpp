@@ -78,6 +78,11 @@ void CShadowHandler::Init()
 	shadowDepthTexture = 0;
 	shadowColorTexture = 0;
 
+	if (globalRendering->IsVulkan()) {
+		shadowConfig = -1;
+		return;
+	}
+
 	if (!tmpFirstInit && !shadowsSupported)
 		return;
 
@@ -119,6 +124,11 @@ void CShadowHandler::Init()
 
 void CShadowHandler::Kill()
 {
+	if (globalRendering->IsVulkan()) {
+		shadowGenProgs.fill(nullptr);
+		return;
+	}
+
 	FreeFBOAndTextures();
 	shaderHandler->ReleaseProgramObjects("[ShadowHandler]");
 	shadowGenProgs.fill(nullptr);

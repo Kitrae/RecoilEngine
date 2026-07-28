@@ -9,6 +9,8 @@
 #include "3DModelPiece.hpp"
 #include "IModelParser.h"
 #include "Rendering/ModelsDataUploader.h"
+#include "Rendering/GlobalRendering.h"
+#include "Rendering/Vulkan/VulkanBuffer.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Features/Feature.h"
@@ -62,10 +64,35 @@ S3DModelVAO::S3DModelVAO()
 	indxVBO = VBO{ GL_ELEMENT_ARRAY_BUFFER, false };
 	instVBO = VBO{ GL_ARRAY_BUFFER        , false };
 
+	if (globalRendering->IsVulkan()) {
+		const auto buffer = globalRendering->CreateVulkanBuffer(
+			nullptr,
+			0,
+			S3DModelVAO::INSTANCE_BUFFER_NUM_ELEMS * sizeof(SInstanceData),
+			Vulkan::BufferType::Vertex
+		);
+		if (buffer.has_value())
+			vulkanInstBuffer = *buffer;
+		return;
+	}
+
 	//no better place to init it
 	instVBO.Bind();
 	instVBO.New(S3DModelVAO::INSTANCE_BUFFER_NUM_ELEMS * sizeof(SInstanceData), GL_STREAM_DRAW);
 	instVBO.Unbind();
+}
+
+S3DModelVAO::~S3DModelVAO()
+{
+	if (globalRendering == nullptr || !globalRendering->IsVulkan())
+		return;
+
+	if (vulkanVertBuffer != std::numeric_limits<uint32_t>::max())
+		globalRendering->DestroyVulkanBuffer(vulkanVertBuffer);
+	if (vulkanIndxBuffer != std::numeric_limits<uint32_t>::max())
+		globalRendering->DestroyVulkanBuffer(vulkanIndxBuffer);
+	if (vulkanInstBuffer != std::numeric_limits<uint32_t>::max())
+		globalRendering->DestroyVulkanBuffer(vulkanInstBuffer);
 }
 
 std::unique_ptr<S3DModelVAO> S3DModelVAO::instance = nullptr;
@@ -141,6 +168,9 @@ void S3DModelVAO::ProcessIndicies(S3DModel* model)
 void S3DModelVAO::CreateVAO()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan())
+		return;
+
 	vao = VAO{};
 	vao.Bind();
 
@@ -163,6 +193,74 @@ void S3DModelVAO::UploadVBOs()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	static constexpr size_t MEM_STEP = 8 * 1024 * 1024;
+
+	if (globalRendering->IsVulkan()) {
+		auto uploadBuffer = [](
+			const void* data,
+			size_t dataSize,
+			size_t uploadedSize,
+			size_t requiredCapacity,
+			Vulkan::BufferType type,
+			uint32_t& handle,
+			size_t& capacity
+		) {
+			if (requiredCapacity > capacity) {
+				if (handle != std::numeric_limits<uint32_t>::max())
+					globalRendering->DestroyVulkanBuffer(handle);
+
+				const auto buffer = globalRendering->CreateVulkanBuffer(data, dataSize, requiredCapacity, type);
+				if (!buffer.has_value()) {
+					handle = std::numeric_limits<uint32_t>::max();
+					capacity = 0;
+					return false;
+				}
+
+				handle = *buffer;
+				capacity = requiredCapacity;
+				return true;
+			}
+
+			return globalRendering->UpdateVulkanBuffer(
+				handle,
+				static_cast<const uint8_t*>(data) + uploadedSize,
+				dataSize - uploadedSize,
+				uploadedSize
+			);
+		};
+
+		if (vertData.size() > vertUploadIndex) {
+			assert(!safeToDeleteVectors);
+			const size_t dataSize = vertData.size() * sizeof(SVertexData);
+			const size_t uploadedSize = vertUploadIndex * sizeof(SVertexData);
+			const size_t requiredCapacity = AlignUp(std::max(vertData.size(), S3DModelVAO::VERT_SIZE0) * sizeof(SVertexData), MEM_STEP);
+			if (!uploadBuffer(vertData.data(), dataSize, uploadedSize, requiredCapacity, Vulkan::BufferType::Vertex, vulkanVertBuffer, vulkanVertCapacity))
+				return;
+
+			vertUploadIndex = vertData.size();
+			vertUploadSize = vertUploadIndex;
+		}
+
+		if (indxData.size() > indxUploadIndex) {
+			assert(!safeToDeleteVectors);
+			const size_t dataSize = indxData.size() * sizeof(uint32_t);
+			const size_t uploadedSize = indxUploadIndex * sizeof(uint32_t);
+			const size_t requiredCapacity = AlignUp(std::max(indxData.size(), S3DModelVAO::INDX_SIZE0) * sizeof(uint32_t), MEM_STEP);
+			if (!uploadBuffer(indxData.data(), dataSize, uploadedSize, requiredCapacity, Vulkan::BufferType::Index, vulkanIndxBuffer, vulkanIndxCapacity))
+				return;
+
+			indxUploadIndex = indxData.size();
+			indxUploadSize = indxUploadIndex;
+		}
+
+		if (safeToDeleteVectors && !vertData.empty()) {
+			vertData.clear();
+			indxData.clear();
+			vertUploadIndex = 0;
+			indxUploadIndex = 0;
+		}
+		return;
+	}
+
 	bool reinitVAO = (vao.GetIdRaw() == 0);
 
 	if (vertData.size() > vertUploadIndex) {
@@ -218,6 +316,9 @@ void S3DModelVAO::Kill()
 void S3DModelVAO::Bind() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan())
+		return;
+
 	assert(vao.GetIdRaw() > 0);
 	vao.Bind();
 }
@@ -225,6 +326,9 @@ void S3DModelVAO::Bind() const
 void S3DModelVAO::Unbind() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan())
+		return;
+
 	assert(vao.GetIdRaw() > 0);
 	vao.Unbind();
 }
@@ -232,6 +336,9 @@ void S3DModelVAO::Unbind() const
 void S3DModelVAO::BindLegacyVertexAttribsAndVBOs() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan())
+		return;
+
 	vertVBO.Bind();
 	indxVBO.Bind();
 
@@ -261,6 +368,9 @@ void S3DModelVAO::BindLegacyVertexAttribsAndVBOs() const
 void S3DModelVAO::UnbindLegacyVertexAttribsAndVBOs() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan())
+		return;
+
 	glClientActiveTexture(GL_TEXTURE6);
 	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 
@@ -283,6 +393,9 @@ void S3DModelVAO::UnbindLegacyVertexAttribsAndVBOs() const
 void S3DModelVAO::DrawElements(GLenum prim, uint32_t vboIndxStart, uint32_t vboIndxCount) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (globalRendering->IsVulkan())
+		return;
+
 	glDrawElements(prim, vboIndxCount, GL_UNSIGNED_INT, indxVBO.GetPtr(vboIndxStart * sizeof(uint32_t)));
 }
 
@@ -397,14 +510,24 @@ void S3DModelVAO::Submit(GLenum mode, bool bindUnbind)
 	if (submitCmds.empty())
 		return;
 
-	instVBO.Bind();
-	instVBO.SetBufferSubData(allRenderModelData);
-	instVBO.Unbind();
+	if (globalRendering->IsVulkan()) {
+		globalRendering->UpdateVulkanBuffer(
+			vulkanInstBuffer,
+			allRenderModelData.data(),
+			allRenderModelData.size() * sizeof(SInstanceData),
+			0
+		);
+	} else {
+		instVBO.Bind();
+		instVBO.SetBufferSubData(allRenderModelData);
+		instVBO.Unbind();
+	}
 
 	if (bindUnbind)
 		Bind();
 
-	glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, submitCmds.data(), submitCmds.size(), sizeof(SDrawElementsIndirectCommand));
+	if (!globalRendering->IsVulkan())
+		glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, submitCmds.data(), submitCmds.size(), sizeof(SDrawElementsIndirectCommand));
 
 	if (bindUnbind)
 		Unbind();
@@ -445,9 +568,18 @@ bool S3DModelVAO::SubmitImmediatelyImpl(const TObj* obj, uint32_t indexStart, ui
 		immediateBaseInstanceAbs
 	};
 
-	instVBO.Bind();
-	instVBO.SetBufferSubData(immediateBaseInstanceAbs * sizeof(SInstanceData), sizeof(SInstanceData), &instanceData);
-	instVBO.Unbind();
+	if (globalRendering->IsVulkan()) {
+		globalRendering->UpdateVulkanBuffer(
+			vulkanInstBuffer,
+			&instanceData,
+			sizeof(SInstanceData),
+			immediateBaseInstanceAbs * sizeof(SInstanceData)
+		);
+	} else {
+		instVBO.Bind();
+		instVBO.SetBufferSubData(immediateBaseInstanceAbs * sizeof(SInstanceData), sizeof(SInstanceData), &instanceData);
+		instVBO.Unbind();
+	}
 
 	immediateBaseInstance = (immediateBaseInstance + 1) % INSTANCE_BUFFER_NUM_IMMEDIATE;
 
@@ -460,7 +592,8 @@ bool S3DModelVAO::SubmitImmediatelyImpl(const TObj* obj, uint32_t indexStart, ui
 	// can't use it either
 	// Revert to glMultiDrawElementsIndirect as it works reliably
 
-	glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, &scmd, 1u, sizeof(SDrawElementsIndirectCommand));
+	if (!globalRendering->IsVulkan())
+		glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, &scmd, 1u, sizeof(SDrawElementsIndirectCommand));
 
 	if (bindUnbind)
 		Unbind();

@@ -289,6 +289,10 @@ void CCamera::UpdateLoadViewport(int px, int py, int sx, int sy)
 void CCamera::LoadMatrices() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+
+	if (globalRendering->IsVulkan())
+		return;
+
 	glMatrixMode(GL_PROJECTION);
 	glLoadMatrixf(&projectionMatrix.m[0]);
 
@@ -299,6 +303,10 @@ void CCamera::LoadMatrices() const
 void CCamera::LoadViewport() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+
+	if (globalRendering->IsVulkan())
+		return;
+
 	glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 }
 
